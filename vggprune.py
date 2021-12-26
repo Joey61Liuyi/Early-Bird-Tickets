@@ -21,13 +21,13 @@ parser.add_argument('--test-batch-size', type=int, default=256, metavar='N',
                     help='input batch size for testing (default: 256)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
-parser.add_argument('--depth', type=int, default=19,
+parser.add_argument('--depth', type=int, default=16,
                     help='depth of the vgg')
-parser.add_argument('--percent', type=float, default=0.5,
+parser.add_argument('--percent', type=float, default=0.3,
                     help='scale sparse rate (default: 0.5)')
-parser.add_argument('--model', default='', type=str, metavar='PATH',
+parser.add_argument('--model', default='./baseline/vgg16-cifar100/EB-30-40.pth.tar', type=str, metavar='PATH',
                     help='path to the model (default: none)')
-parser.add_argument('--save', default='', type=str, metavar='PATH',
+parser.add_argument('--save', default='./baseline/vgg16-cifar100/pruned_3040_0.3', type=str, metavar='PATH',
                     help='path to save pruned model (default: none)')
 parser.add_argument('--arch', type=str, default='vgg',
                     help='vgg')

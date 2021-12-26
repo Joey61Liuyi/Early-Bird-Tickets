@@ -46,13 +46,13 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--save', default='./logs', type=str, metavar='PATH',
+parser.add_argument('--save', default='./baseline/vgg16-cifar100/retrain_1035_0.1_scratch', type=str, metavar='PATH',
                     help='path to save prune model (default: current directory)')
 parser.add_argument('--arch', default='vgg', type=str, 
                     help='architecture to use')
-parser.add_argument('--scratch',default='', type=str,
+parser.add_argument('--scratch',default='./baseline/vgg16-cifar100/pruned_3040_0.3/pruned.pth.tar', type=str,
                     help='the PATH to the pruned model')
-parser.add_argument('--depth', default=19, type=int,
+parser.add_argument('--depth', default=16, type=int,
                     help='depth of the neural network')
 # multi-gpus
 parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
@@ -77,7 +77,7 @@ for gpu_id in gpu_ids:
 if len(args.gpu_ids) > 0:
    torch.cuda.set_device(args.gpu_ids[0])
 
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 if args.dataset == 'cifar10':
     train_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10('./data.cifar10', train=True, download=True,
@@ -168,7 +168,7 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
+        correct_k = correct[:k].contiguous().view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 

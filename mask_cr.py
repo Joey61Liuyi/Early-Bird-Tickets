@@ -19,17 +19,17 @@ parser.add_argument('--test-batch-size', type=int, default=256, metavar='N',
                     help='input batch size for testing (default: 256)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
-parser.add_argument('--depth', type=int, default=19,
+parser.add_argument('--depth', type=int, default=16,
                     help='depth of the vgg')
 parser.add_argument('--percent', type=float, default=0.5,
                     help='scale sparse rate (default: 0.5)')
 parser.add_argument('--model', default='', type=str, metavar='PATH',
                     help='path to the model (default: none)')
-parser.add_argument('--save', default='', type=str, metavar='PATH',
+parser.add_argument('--save', default='./baseline/vgg16-cifar100', type=str, metavar='PATH',
                     help='path to save pruned model (default: none)')
-parser.add_argument('--save_1', default='', type=str, metavar='PATH',
+parser.add_argument('--save_1', default='./baseline/vgg16-cifar100', type=str, metavar='PATH',
                     help='path to save pruned model (default: none)')
-parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='manual start epoch number')
+parser.add_argument('--start_epoch', default=1, type=int, metavar='N', help='manual start epoch number')
 parser.add_argument('--end_epoch', default=160, type=int, metavar='N', help='manual end epoch number')
 
 # quantized parameters
@@ -94,7 +94,6 @@ def pruning(model):
     thre_index = int(total * args.percent)
     thre = y[thre_index]
     # print('Pruning threshold: {}'.format(thre))
-
     mask = torch.zeros(total)
     index = 0
     for k, m in enumerate(model.modules()):
