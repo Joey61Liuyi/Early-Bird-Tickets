@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torchvision import datasets, transforms
-
+import wandb
 # from models import *
 import models
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
@@ -219,13 +219,11 @@ def check_score(model, cfg, cfg_mask):
         newmodel(x2.to(device))
         s_, ld = np.linalg.slogdet(newmodel.K)
         s.append(ld)
-
     score = np.mean(s)
     return score
 
 if args.cuda:
     model.cuda()
-
 
 def pruning(model):
     total = 0
@@ -304,6 +302,24 @@ for i in range(args.start_epoch, args.end_epoch+1):
 #         print('overlap[{}, {}] = {}'.format(i-1, j-1, overlap[i-1, j-1]))
 #
 # np.save(save_dir, overlap)
-for i in range(args.start_epoch, args.end_epoch+1):
+wandb_project = 'pruning_score'
+name = 'trail'
+wandb.init(project=wandb_project, name=name)
+best_info = {}
+best_score = 0
+
+for i in range(args.start_epoch, args.end_epoch):
     score = check_score(model, masks[i][1], masks[i][2])
+    info_dict = {
+        'epoch': i,
+        'score': score,
+        'cfg': masks[i][1],
+        'cfg_mask': masks[i][2]
+    }
+    wandb.log(info_dict)
     print(score)
+    if score > best_score:
+        best_score = score
+        best_info = info_dict
+
+np.save('{:.2f}.npy'.format(best_score), best_info)
