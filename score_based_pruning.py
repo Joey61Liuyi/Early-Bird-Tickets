@@ -115,7 +115,7 @@ def check_score(newmodel, train_loader):
     newmodel = newmodel.to(device)
     s = []
 
-    for j in range(5):
+    for j in range(1):
         data_iterator = iter(train_loader)
         x, target = next(data_iterator)
         x2 = torch.clone(x)
@@ -168,6 +168,26 @@ def pruning(model):
     # print('Pre-processing Successful!')
     return mask, cfg, cfg_mask
 
+def create_cfg(cfg_mask_all, mask_all):
+    form = copy.deepcopy(cfg_mask_all)
+    while 'M' in form:
+        form.remove('M')
+    np.random.shuffle(mask_all)
+    cfg_mask = []
+    end = 0
+    for i in form:
+        cfg_mask.append(mask_all[end:end + i])
+        end += i
+    cfg = []
+    index = 0
+    for i in range(len(cfg_mask_all)):
+        if cfg_mask_all[i] != 'M':
+            cfg.append(int(np.sum(cfg_mask[index])))
+            index += 1
+        else:
+            cfg.append('M')
+    return cfg, cfg_mask
+
 def random_search(cfg_mask_all, percent):
 
     form = copy.deepcopy(cfg_mask_all)
@@ -176,27 +196,38 @@ def random_search(cfg_mask_all, percent):
     total = np.sum(form)
     choose_num = int(total * percent)
     mask_all = np.append(np.ones(choose_num), np.zeros(total - choose_num))
-    score_best = 0
+    record_dict = {}
+    for i in range(len(mask_all)):
+        record_dict[i] = []
+    score_test = 0
     trail_index = 0
-    while score_best < 1633:
-        np.random.shuffle(mask_all)
-        cfg_mask = []
-        end = 0
-        for i in form:
-            cfg_mask.append(mask_all[end:end+i])
-            end += i
-        cfg = []
-        index = 0
-        for i in range(len(cfg_mask_all)):
-            if cfg_mask_all[i] != 'M':
-                cfg.append(int(np.sum(cfg_mask[index])))
-                index += 1
-            else:
-                cfg.append('M')
+    while score_test < 1450:
+        for i in range(100):
+            np.random.shuffle(mask_all)
+            cfg, cfg_mask = create_cfg(cfg_mask_all, mask_all)
+            model_new = create_model(model, cfg, cfg_mask)
+            score = check_score(model_new, train_loader)
+            for i in range(len(mask_all)):
+                if not mask_all[i]:
+                    record_dict[i].append(score)
 
+        average_score = pd.DataFrame([], columns=["position", "score"])
+
+        for i in range(len(mask_all)):
+            info_dict = {
+                'position':i,
+                'score':np.max(record_dict[i])
+            }
+            average_score = average_score.append(info_dict, ignore_index=True)
+
+        average_score = average_score.sort_values(by=['score'], ascending=False)
+        indexes = average_score['position'][0: int(len(average_score) * percent)]
+        indexes = indexes.astype(int)
+        indicator = np.ones(total)
+        indicator[indexes] = 0
+        cfg, cfg_mask = create_cfg(cfg_mask_all, indicator)
         model_new = create_model(model, cfg, cfg_mask)
         score = check_score(model_new, train_loader)
-        trail_index += 1
         info_dict = {
             'index': trail_index,
             'cfg': cfg,
@@ -204,10 +235,17 @@ def random_search(cfg_mask_all, percent):
             'score': score
         }
         wandb.log(info_dict)
-        print('The trail of {}, score: {:.2f}'.format(trail_index, score))
-        if score > score_best:
-            score_best = score
-            np.save('{:.2f}.npy'.format(score_best), info_dict)
+        print('The trial of {}, the score is {:.2f}'.format(trail_index, score))
+        trail_index += 1
+        if score > score_test:
+            score_test = score
+            np.save('{:.2f}.npy'.format(score_test), info_dict)
+
+
+def reset_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
 
 def greedy_search(cfg_mask_all, percent):
     form = copy.deepcopy(cfg_mask_all)
@@ -250,6 +288,8 @@ def greedy_search(cfg_mask_all, percent):
             else:
                 cfg.append('M')
         model_new = create_model(model, cfg, cfg_mask)
+        reset_seed(1)
+
         score = check_score(model_new, train_loader)
         info_dict = {
             'index': position,
@@ -398,8 +438,8 @@ if __name__ == '__main__':
 
 
     wandb_project = 'pruning_score'
-    name = 'trail'
-    # wandb.init(project=wandb_project, name=name)
+    name = 'mont_calo'
+    wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
     greedy_search(cfg_mask_all, args.percent)

@@ -209,7 +209,7 @@ def check_score(model, cfg, cfg_mask):
     torch.manual_seed(seed)
     s = []
 
-    for j in range(5):
+    for j in range(1):
         data_iterator = iter(train_loader)
         x, target = next(data_iterator)
         x2 = torch.clone(x)
@@ -308,6 +308,8 @@ wandb.init(project=wandb_project, name=name)
 best_info = {}
 best_score = 0
 
+bird = [15, 25, 40, 159]
+
 for i in range(args.start_epoch, args.end_epoch):
     score = check_score(model, masks[i][1], masks[i][2])
     info_dict = {
@@ -321,5 +323,5 @@ for i in range(args.start_epoch, args.end_epoch):
     if score > best_score:
         best_score = score
         best_info = info_dict
-
-np.save('{:.2f}.npy'.format(best_score), best_info)
+    if i in bird:
+        np.save('{}-{:.2f}.npy'.format(i, best_score), info_dict)

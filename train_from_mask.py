@@ -11,6 +11,7 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 import models
 import copy
+import wandb
 import os
 
 def create_model(model, cfg, cfg_mask):
@@ -134,82 +135,90 @@ def test(model, test_loader):
 
 if __name__ == '__main__':
     # data = np.load('1633.66.npy', allow_pickle=True)
-    data = np.load('1610.43.npy', allow_pickle=True)
-    data = data.item()
-    cfg = data['cfg']
-    cfg_mask = data['cfg_mask']
-    # for i in range(len(cfg_mask)):
-    #     cfg_mask[i] = np.asarray(cfg_mask[i].cpu().numpy())
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 128
-    test_batch_size = 128
-    arch = 'vgg'
-    dataset = 'cifar100'
-    model = models.__dict__[arch](dataset=dataset, depth = 16)
-    model = create_model(model, cfg, cfg_mask)
-    model.to('cuda')
+    mask_list = ['1610.43.npy']
+    wandb_project = 'pruning_score'
+    for mask in mask_list:
+        wandb.init(project=wandb_project, name='greedy')
+        seed = 1
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        mask_name = '25-1632.01.npy'
+        data = np.load(mask_name, allow_pickle=True)
+        data = data.item()
+        cfg = data['cfg']
+        cfg_mask = data['cfg_mask']
+        # if '-' in mask:
+        for i in range(len(cfg_mask)):
+            cfg_mask[i] = np.asarray(cfg_mask[i].cpu().numpy())
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        batch_size = 128
+        test_batch_size = 128
+        arch = 'vgg'
+        dataset = 'cifar100'
+        model = models.__dict__[arch](dataset=dataset, depth = 16)
+        model = create_model(model, cfg, cfg_mask)
+        model.to('cuda')
 
-    if dataset == 'cifar10':
-        train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('./data.cifar10', train=True, download=True,
-                             transform=transforms.Compose([
-                                 transforms.Pad(4),
-                                 transforms.RandomCrop(32),
-                                 transforms.RandomHorizontalFlip(),
-                                 transforms.ToTensor(),
-                                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                             ])),
-            batch_size=batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('./data.cifar10', train=False, transform=transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            ])),
-            batch_size=test_batch_size, shuffle=True)
-    else:
-        train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR100('./data.cifar100', train=True, download=True,
-                              transform=transforms.Compose([
-                                  transforms.Pad(4),
-                                  transforms.RandomCrop(32),
-                                  transforms.RandomHorizontalFlip(),
-                                  transforms.ToTensor(),
-                                  transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                              ])),
-            batch_size=batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR100('./data.cifar100', train=False, transform=transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            ])),
-            batch_size=test_batch_size, shuffle=True)
+        if dataset == 'cifar10':
+            train_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR10('./data.cifar10', train=True, download=True,
+                                 transform=transforms.Compose([
+                                     transforms.Pad(4),
+                                     transforms.RandomCrop(32),
+                                     transforms.RandomHorizontalFlip(),
+                                     transforms.ToTensor(),
+                                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                                 ])),
+                batch_size=batch_size, shuffle=True)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR10('./data.cifar10', train=False, transform=transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                ])),
+                batch_size=test_batch_size, shuffle=True)
+        else:
+            train_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR100('./data.cifar100', train=True, download=True,
+                                  transform=transforms.Compose([
+                                      transforms.Pad(4),
+                                      transforms.RandomCrop(32),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                                  ])),
+                batch_size=batch_size, shuffle=True)
+            test_loader = torch.utils.data.DataLoader(
+                datasets.CIFAR100('./data.cifar100', train=False, transform=transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                ])),
+                batch_size=test_batch_size, shuffle=True)
 
-    schedule = [80, 120]
-    epochs = 160
-    history_score = np.zeros((epochs, 3))
-    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+        schedule = [80, 120]
+        epochs = 160
+        history_score = np.zeros((epochs, 3))
+        optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
 
-    best_prec1 = 0
-    for epoch in range(epochs):
-        if epoch in schedule:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] *= 0.1
-        train(epoch, model, train_loader, optimizer)
-        prec1 = test(model, test_loader)
-        history_score[epoch][2] = prec1
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
-        # save_checkpoint({
-        #     'epoch': epoch + 1,
-        #     'state_dict': model.state_dict(),
-        #     'best_prec1': best_prec1,
-        #     'optimizer': optimizer.state_dict(),
-        # }, is_best, filepath=args.save)
+        best_prec1 = 0
+        for epoch in range(epochs):
+            if epoch in schedule:
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.1
+            train(epoch, model, train_loader, optimizer)
+            prec1 = test(model, test_loader)
+            history_score[epoch][2] = prec1
+            is_best = prec1 > best_prec1
+            best_prec1 = max(prec1, best_prec1)
+            # save_checkpoint({
+            #     'epoch': epoch + 1,
+            #     'state_dict': model.state_dict(),
+            #     'best_prec1': best_prec1,
+            #     'optimizer': optimizer.state_dict(),
+            # }, is_best, filepath=args.save)
 
-    print("Best accuracy: " + str(best_prec1))
-    history_score[-1][0] = best_prec1
+        print("Best accuracy: " + str(best_prec1))
+        history_score[-1][0] = best_prec1
+        print(mask_name)
+        wandb.finish()
 
-
-
-
-    print(data)
+    # print(data)

@@ -30,9 +30,9 @@ if __name__ == '__main__':
                         help='train with channel sparsity regularization')
     parser.add_argument('--s', type=float, default=0.0001,
                         help='scale sparse rate (default: 0.0001)')
-    parser.add_argument('--batch-size', type=int, default=256, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=256, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
                         help='input batch size for testing (default: 256)')
     parser.add_argument('--epochs', type=int, default=160, metavar='N',
                         help='number of epochs to train (default: 160)')
@@ -54,11 +54,11 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--save', default='./baseline/vgg16-cifar100', type=str, metavar='PATH',
+    parser.add_argument('--save', default='./baseline/resnet20-cifar100', type=str, metavar='PATH',
                         help='path to save prune model (default: current directory)')
-    parser.add_argument('--arch', default='vgg', type=str,
+    parser.add_argument('--arch', default='resnet', type=str,
                         help='architecture to use')
-    parser.add_argument('--depth', default=16, type=int,
+    parser.add_argument('--depth', default=20, type=int,
                         help='depth of the neural network')
     parser.add_argument('--scratch',default='', type=str,
                         help='the PATH to the pruned model')
@@ -117,9 +117,6 @@ if __name__ == '__main__':
             return torch.where(x > args.sparsity_gt, x, torch.zeros_like(x))
         else:
             return x
-
-
-
 
     if args.dataset == 'cifar10':
         train_loader = torch.utils.data.DataLoader(
@@ -224,6 +221,14 @@ if __name__ == '__main__':
 
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    cfg_mask_all = []
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            cfg_mask_all.append(m.weight.data.shape[0])
+        elif isinstance(m, nn.MaxPool2d):
+            cfg_mask_all.append('M')
+    print(np.sum(cfg_mask_all))
+    print(cfg_mask_all)
 
     def save_checkpoint(state, is_best, epoch, filepath):
         if epoch == 'init':
