@@ -85,7 +85,6 @@ def create_model(model, cfg, cfg_mask):
     return newmodel
 
 
-
 def check_score(newmodel, train_loader):
 
     newmodel.K = np.zeros((args.test_batch_size, args.test_batch_size))
@@ -115,7 +114,7 @@ def check_score(newmodel, train_loader):
     newmodel = newmodel.to(device)
     s = []
 
-    for j in range(1):
+    for j in range(5):
         data_iterator = iter(train_loader)
         x, target = next(data_iterator)
         x2 = torch.clone(x)
@@ -168,15 +167,15 @@ def pruning(model):
     # print('Pre-processing Successful!')
     return mask, cfg, cfg_mask
 
-def create_cfg(cfg_mask_all, mask_all):
+def create_cfg(cfg_mask_all, indicator):
     form = copy.deepcopy(cfg_mask_all)
     while 'M' in form:
         form.remove('M')
-    np.random.shuffle(mask_all)
+    # np.random.shuffle(mask_all)
     cfg_mask = []
     end = 0
     for i in form:
-        cfg_mask.append(mask_all[end:end + i])
+        cfg_mask.append(indicator[end:end + i])
         end += i
     cfg = []
     index = 0
@@ -247,7 +246,81 @@ def reset_seed(seed):
     torch.manual_seed(seed)
     random.seed(seed)
 
-def greedy_search(cfg_mask_all, percent):
+def count_channel(model):
+    cfg_mask_all = []
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            cfg_mask_all.append(m.weight.data.shape[0])
+        elif isinstance(m, nn.MaxPool2d):
+            cfg_mask_all.append('M')
+
+    form = copy.deepcopy(cfg_mask_all)
+    while 'M' in cfg_mask_all:
+        cfg_mask_all.remove('M')
+    total = np.sum(cfg_mask_all)
+    return total, form
+
+def greedy_search_new(model, percent, train_loader):
+    total, form = count_channel(model)
+    channel_num = total
+
+    while channel_num > total * percent:
+        indicator = np.ones(total)
+        score_dict = pd.DataFrame([], columns=['index', 'score'])
+        for position in range(channel_num):
+            indicator_tep = copy.deepcopy(indicator)
+            indicator_tep[position] = 0
+            cfg, cfg_mask = create_cfg(form, indicator_tep)
+            model_new = create_model(model, cfg, cfg_mask)
+            score = check_score(model_new, train_loader)
+            info_dict = {
+                'index': position,
+                'score': score
+            }
+            score_dict = score_dict.append(info_dict, ignore_index=True)
+            print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
+
+        score_dict = score_dict.sort_values(by=['score'], ascending=False)
+        indexes = score_dict['index'][0:384]
+        indexes = indexes.astype(int)
+        indicator_tep = copy.deepcopy(indicator)
+        indicator_tep[indexes] = 0
+        cfg, cfg_mask = create_cfg(form, indicator_tep)
+        newmodel = create_model(model, cfg, cfg_mask)
+        score = check_score(newmodel, train_loader)
+        info_dict = {
+            'index': position,
+            'score': score
+        }
+        # wandb.log(info_dict)
+        model = newmodel
+        channel_num, form = count_channel(model)
+
+
+
+
+        # for i in range(len(cfg_mask)):
+        #     cfg = copy.copy(cfg_mask)
+        #     cfg[i] -= 1
+        #     newmodel = models.__dict__[args.arch](dataset=args.dataset, cfg=cfg)
+        #     score = check_score(newmodel, train_loader)
+        #     score_dict[i] = score
+        # print(score_dict)
+
+
+
+
+
+
+def greedy_search(model, percent):
+
+    cfg_mask_all = []
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            cfg_mask_all.append(m.weight.data.shape[0])
+        elif isinstance(m, nn.MaxPool2d):
+            cfg_mask_all.append('M')
+
     form = copy.deepcopy(cfg_mask_all)
     while 'M' in form:
         form.remove('M')
@@ -271,33 +344,6 @@ def greedy_search(cfg_mask_all, percent):
     # model_new = create_model(model, cfg, cfg_mask)
     # score = check_score(model_new, train_loader)
     score_dict = pd.DataFrame([], columns=['index', 'score'])
-    for position in range(total):
-        indicator_tep = copy.deepcopy(indicator)
-        indicator_tep[position] = 0
-        cfg_mask = []
-        end = 0
-        for i in form:
-            cfg_mask.append(indicator_tep[end:end + i])
-            end += i
-        cfg = []
-        index = 0
-        for i in range(len(cfg_mask_all)):
-            if cfg_mask_all[i] != 'M':
-                cfg.append(int(np.sum(cfg_mask[index])))
-                index += 1
-            else:
-                cfg.append('M')
-        model_new = create_model(model, cfg, cfg_mask)
-        reset_seed(1)
-
-        score = check_score(model_new, train_loader)
-        info_dict = {
-            'index': position,
-            'score': score
-        }
-        score_dict = score_dict.append(info_dict, ignore_index=True)
-        print('{}/{}: score {:.2f}'.format(position, total, score))
-
     score_dict.to_csv('score_indicator.csv')
     score_dict = score_dict.sort_values(by=['score'], ascending=False)
     indexes = score_dict['index'][0: int(len(score_dict)*percent)]
@@ -429,20 +475,13 @@ if __name__ == '__main__':
     if args.cuda:
         model.cuda()
 
-    cfg_mask_all = []
-    for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
-            cfg_mask_all.append(m.weight.data.shape[0])
-        elif isinstance(m, nn.MaxPool2d):
-            cfg_mask_all.append('M')
-
 
     wandb_project = 'pruning_score'
-    name = 'mont_calo'
-    wandb.init(project=wandb_project, name=name)
+    name = '128_greedy'
+    # wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
-    greedy_search(cfg_mask_all, args.percent)
+    greedy_search_new(model, args.percent, train_loader)
 
 
     #
