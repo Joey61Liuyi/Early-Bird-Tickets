@@ -261,6 +261,7 @@ def count_channel(model):
     return total, form
 
 def greedy_search_new(model, percent, train_loader):
+    buffer = 66
     total, form = count_channel(model)
     channel_num = total
     progress_index = 0
@@ -291,7 +292,7 @@ def greedy_search_new(model, percent, train_loader):
                 print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
 
         score_dict = score_dict.sort_values(by=['score'], ascending=False)
-        indexes = score_dict['index'][0:11]
+        indexes = score_dict['index'][0:buffer]
         indexes = indexes.astype(int)
         indicator[indexes] = 0
         cfg, cfg_mask = create_cfg(form, indicator)
@@ -299,7 +300,7 @@ def greedy_search_new(model, percent, train_loader):
         newmodel = create_model(model, cfg, cfg_mask)
         score = check_score(newmodel, train_loader)
         info_dict = {
-            'index': progress_index,
+            'index': progress_index*buffer,
             'score': score
         }
         wandb.log(info_dict)
@@ -532,8 +533,8 @@ if __name__ == '__main__':
     wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
-    # greedy_search_new(model, args.percent, train_loader)
-    greedy_search(model, args.percent, train_loader)
+    greedy_search_new(model, args.percent, train_loader)
+    # greedy_search(model, args.percent, train_loader)
 
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
