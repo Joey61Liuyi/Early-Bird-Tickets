@@ -313,21 +313,61 @@ def greedy_search_new(model, percent, train_loader):
     }
     np.save('{:.2f}.npy'.format(score), save_dict)
 
-
-def greedy_search(model, percent):
-
-    cfg_mask_all = []
-    for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
-            cfg_mask_all.append(m.weight.data.shape[0])
-        elif isinstance(m, nn.MaxPool2d):
-            cfg_mask_all.append('M')
-
-    form = copy.deepcopy(cfg_mask_all)
+def count_cfg_channel(cfg):
+    form = copy.deepcopy(cfg)
     while 'M' in form:
         form.remove('M')
-    total = np.sum(form)
-    indicator = np.ones(total)
+    channel = np.sum(form)
+    return channel
+
+
+
+def greedy_search(model, percent, train_loader):
+    total, form = count_channel(model)
+    index_trial = 0
+    while count_cfg_channel(form) > total*percent:
+        score_list = []
+        for i in range(len(form)):
+            if form[i] != 'M':
+                cfg = copy.deepcopy(form)
+                cfg[i] -= 1
+                newmodel = models.__dict__[args.arch](dataset=args.dataset, cfg = cfg)
+                score = check_score(newmodel, train_loader)
+                score_list.append(score)
+            else:
+                score_list.append(-1)
+        max_score = max(score_list)
+        index = score_list.index(max_score)
+
+        info_dict = {
+            'index': index_trial,
+            'cfg': form,
+            'score': max_score
+        }
+        index_trial +=1
+        wandb.log(info_dict)
+        form[index] -= 1
+        print(max_score)
+
+    info_dict = {
+        'cfg': form,
+        'score': max_score
+    }
+    np.save('{:.2f}.npy'.format(score), info_dict)
+
+
+    # cfg_mask_all = []
+    # for m in model.modules():
+    #     if isinstance(m, nn.BatchNorm2d):
+    #         cfg_mask_all.append(m.weight.data.shape[0])
+    #     elif isinstance(m, nn.MaxPool2d):
+    #         cfg_mask_all.append('M')
+    #
+    # form = copy.deepcopy(cfg_mask_all)
+    # while 'M' in form:
+    #     form.remove('M')
+    # total = np.sum(form)
+    # indicator = np.ones(total)
 
     # cfg_mask = []
     # end = 0
@@ -345,35 +385,35 @@ def greedy_search(model, percent):
     #         cfg.append('M')
     # model_new = create_model(model, cfg, cfg_mask)
     # score = check_score(model_new, train_loader)
-    score_dict = pd.DataFrame([], columns=['index', 'score'])
-    score_dict.to_csv('score_indicator.csv')
-    score_dict = score_dict.sort_values(by=['score'], ascending=False)
-    indexes = score_dict['index'][0: int(len(score_dict)*percent)]
-    indexes = indexes.astype(int)
-    indicator_tep = copy.deepcopy(indicator)
-    indicator_tep[indexes] = 0
-    cfg_mask = []
-    end = 0
-    for i in form:
-        cfg_mask.append(indicator_tep[end:end + i])
-        end += i
-    cfg = []
-    index = 0
-    for i in range(len(cfg_mask_all)):
-        if cfg_mask_all[i] != 'M':
-            cfg.append(int(np.sum(cfg_mask[index])))
-            index += 1
-        else:
-            cfg.append('M')
-    model_new = create_model(model, cfg, cfg_mask)
-    score = check_score(model_new, train_loader)
+    # score_dict = pd.DataFrame([], columns=['index', 'score'])
+    # score_dict.to_csv('score_indicator.csv')
+    # score_dict = score_dict.sort_values(by=['score'], ascending=False)
+    # indexes = score_dict['index'][0: int(len(score_dict)*percent)]
+    # indexes = indexes.astype(int)
+    # indicator_tep = copy.deepcopy(indicator)
+    # indicator_tep[indexes] = 0
+    # cfg_mask = []
+    # end = 0
+    # for i in form:
+    #     cfg_mask.append(indicator_tep[end:end + i])
+    #     end += i
+    # cfg = []
+    # index = 0
+    # for i in range(len(cfg_mask_all)):
+    #     if cfg_mask_all[i] != 'M':
+    #         cfg.append(int(np.sum(cfg_mask[index])))
+    #         index += 1
+    #     else:
+    #         cfg.append('M')
+    # model_new = create_model(model, cfg, cfg_mask)
+    # score = check_score(model_new, train_loader)
 
-    info_dict = {
-        'cfg': cfg,
-        'cfg_mask': cfg_mask,
-        'score': score
-    }
-    np.save('{:.2f}.npy'.format(score), info_dict)
+    # info_dict = {
+    #     'cfg': cfg,
+    #     'cfg_mask': cfg_mask,
+    #     'score': score
+    # }
+    # np.save('{:.2f}.npy'.format(score), info_dict)
 
 
 if __name__ == '__main__':
@@ -483,8 +523,8 @@ if __name__ == '__main__':
     wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
-    greedy_search_new(model, args.percent, train_loader)
-
+    # greedy_search_new(model, args.percent, train_loader)
+    greedy_search(model, args.percent, train_loader)
 
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
