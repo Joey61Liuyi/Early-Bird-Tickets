@@ -261,7 +261,7 @@ def count_channel(model):
     return total, form
 
 def greedy_search_new(model, percent, train_loader):
-    buffer = 66
+    buffer = 11
     total, form = count_channel(model)
     channel_num = total
     progress_index = 0
@@ -329,6 +329,96 @@ def count_cfg_channel(cfg):
         form.remove('M')
     channel = np.sum(form)
     return channel
+
+
+def create_base(model, train_loader):
+    total, form = count_channel(model)
+    indicator = []
+    for one in form:
+        if one != 'M':
+            tep = np.zeros(one)
+            tep[0] = 1
+            indicator.append(tep)
+
+    for i in range(len(indicator)):
+        record = pd.DataFrame([], columns=["index", "score"])
+        for j in range(len(indicator[i])):
+            tep = np.zeros(len(indicator[i]))
+            tep[j] = 1
+            indicator_tep = copy.deepcopy(indicator)
+            indicator_tep[i] = tep
+            indicator_list = []
+            for k in indicator_tep:
+                indicator_list += list(k)
+            indicator_tep = np.array(indicator_list).astype(int)
+            cfg, cfg_mask = create_cfg(form, indicator_tep)
+            new_model = create_model(model, cfg, cfg_mask)
+            score = check_score(new_model, train_loader)
+            info_dict = {
+                "index": j,
+                "score": score
+            }
+            record = record.append(info_dict, ignore_index=True)
+            # print("for the {}-th module, tried {}/{}, the score is {:.2f}".format(i, j, len(indicator[i]), score))
+        record = record.sort_values(by=['score'], ascending=False)
+        indexes = record['index'][0]
+        tep = np.zeros(len(indicator[i]))
+        tep[int(indexes)] = 1
+        indicator[i] = tep
+        print("for the {}-th module, tried {}/{}, the score is {:.2f}".format(i, j, len(indicator[i]), record['score'][0]))
+    indicator_list = []
+    for i in indicator:
+        indicator_list += (list(i))
+    indicator = np.array(indicator_list)
+    return indicator
+
+
+def greedy_search_increase(model, percent, train_loader):
+
+    buffer = 11
+    total, form = count_channel(model)
+    indicator = create_base(model, train_loader)
+    left_channels = int(total*percent - np.sum(indicator))
+    while left_channels > 0:
+        record = pd.DataFrame([], columns=["index", "score"])
+        for i in range(len(indicator)):
+            if indicator[i]:
+                print("already chosen")
+            else:
+                indicator_tep = copy.deepcopy(indicator)
+                cfg, cfg_mask = create_cfg(form, indicator_tep)
+                new_model = create_model(model, cfg, cfg_mask)
+                score = check_score(new_model, train_loader)
+                info_dict = {
+                    "index": i,
+                    "score": score
+                }
+                record = record.append(info_dict, ignore_index=True)
+        record = record.sort_values(by=['score'], ascending=False)
+        if left_channels < buffer:
+            buffer = left_channels
+        indexes = record['index'][0:buffer]
+        indexes = indexes.astype(int)
+        indicator[indexes] = 1
+
+        cfg, cfg_mask = create_cfg(form, indicator)
+        new_model = create_model(model, cfg, cfg_mask)
+        score = check_score(new_model, train_loader)
+        left_channels = int(total * percent - np.sum(indicator))
+        print("Still have {} channels to prune, now the highest score is {:.2f}".format(left_channels, score))
+        info_dict = {
+            "channels": np.sum(indicator),
+            "score": score
+        }
+        wandb.log(info_dict)
+
+    save_dict = {
+        'state_dict': new_model.state_dict(),
+        'cfg': cfg,
+        'cfg_mask': cfg_mask,
+        'score': score
+    }
+    torch.save(save_dict, '{:.2f}.pth'.format(score))
 
 
 
@@ -529,13 +619,13 @@ if __name__ == '__main__':
 
 
     wandb_project = 'pruning_score'
-    name = '128_greedy'
+    name = 'greedy_increase'
     wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
-    greedy_search_new(model, args.percent, train_loader)
+    # greedy_search_new(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-
+    greedy_search_increase(model, args.percent, train_loader)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
