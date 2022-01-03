@@ -263,31 +263,39 @@ def count_channel(model):
 def greedy_search_new(model, percent, train_loader):
     total, form = count_channel(model)
     channel_num = total
-
     progress_index = 0
-
+    indicator = np.ones(total)
     while channel_num > total * percent:
-        indicator = np.ones(total)
+        # indicator = np.ones(total)
         score_dict = pd.DataFrame([], columns=['index', 'score'])
-        for position in range(channel_num):
-            indicator_tep = copy.deepcopy(indicator)
-            indicator_tep[position] = 0
-            cfg, cfg_mask = create_cfg(form, indicator_tep)
-            model_new = create_model(model, cfg, cfg_mask)
-            score = check_score(model_new, train_loader)
-            info_dict = {
-                'index': position,
-                'score': score
-            }
-            score_dict = score_dict.append(info_dict, ignore_index=True)
-            print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
+        for position in range(total):
+            if indicator[position]:
+                indicator_tep = copy.deepcopy(indicator)
+                indicator_tep[position] = 0
+                cfg, cfg_mask = create_cfg(form, indicator_tep)
+                model_new = create_model(model, cfg, cfg_mask)
+                score = check_score(model_new, train_loader)
+                info_dict = {
+                    'index': position,
+                    'score': score
+                }
+                score_dict = score_dict.append(info_dict, ignore_index=True)
+                print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
+            else:
+                score = -1
+                info_dict = {
+                    'index': position,
+                    'score': -1,
+                }
+                score_dict = score_dict.append(info_dict, ignore_index=True)
+                print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
 
         score_dict = score_dict.sort_values(by=['score'], ascending=False)
         indexes = score_dict['index'][0:11]
         indexes = indexes.astype(int)
-        indicator_tep = copy.deepcopy(indicator)
-        indicator_tep[indexes] = 0
-        cfg, cfg_mask = create_cfg(form, indicator_tep)
+        indicator[indexes] = 0
+        cfg, cfg_mask = create_cfg(form, indicator)
+        channel_num = count_cfg_channel(cfg)
         newmodel = create_model(model, cfg, cfg_mask)
         score = check_score(newmodel, train_loader)
         info_dict = {
@@ -295,8 +303,6 @@ def greedy_search_new(model, percent, train_loader):
             'score': score
         }
         wandb.log(info_dict)
-        model = newmodel
-        channel_num, form = count_channel(model)
         progress_index += 1
 
         # for i in range(len(cfg_mask)):
@@ -308,10 +314,13 @@ def greedy_search_new(model, percent, train_loader):
         # print(score_dict)
 
     save_dict = {
+        'state_dict': newmodel.state_dict(),
         'cfg': cfg,
-        'cfg_mask': cfg_mask
+        'cfg_mask': cfg_mask,
+        'score': score
     }
-    np.save('{:.2f}.npy'.format(score), save_dict)
+    torch.save(save_dict, '{:.2f}.pth'.format(score))
+    # np.save('{:.2f}.npy'.format(score), save_dict)
 
 def count_cfg_channel(cfg):
     form = copy.deepcopy(cfg)
