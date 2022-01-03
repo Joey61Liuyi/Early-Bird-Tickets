@@ -264,6 +264,8 @@ def greedy_search_new(model, percent, train_loader):
     total, form = count_channel(model)
     channel_num = total
 
+    progress_index = 0
+
     while channel_num > total * percent:
         indicator = np.ones(total)
         score_dict = pd.DataFrame([], columns=['index', 'score'])
@@ -281,7 +283,7 @@ def greedy_search_new(model, percent, train_loader):
             print('{}----{}/{}: score {:.2f}'.format(channel_num, position, total, score))
 
         score_dict = score_dict.sort_values(by=['score'], ascending=False)
-        indexes = score_dict['index'][0:384]
+        indexes = score_dict['index'][0:11]
         indexes = indexes.astype(int)
         indicator_tep = copy.deepcopy(indicator)
         indicator_tep[indexes] = 0
@@ -289,15 +291,13 @@ def greedy_search_new(model, percent, train_loader):
         newmodel = create_model(model, cfg, cfg_mask)
         score = check_score(newmodel, train_loader)
         info_dict = {
-            'index': position,
+            'index': progress_index,
             'score': score
         }
-        # wandb.log(info_dict)
+        wandb.log(info_dict)
         model = newmodel
         channel_num, form = count_channel(model)
-
-
-
+        progress_index += 1
 
         # for i in range(len(cfg_mask)):
         #     cfg = copy.copy(cfg_mask)
@@ -307,9 +307,11 @@ def greedy_search_new(model, percent, train_loader):
         #     score_dict[i] = score
         # print(score_dict)
 
-
-
-
+    save_dict = {
+        'cfg': cfg,
+        'cfg_mask': cfg_mask
+    }
+    np.save('{:.2f}.npy'.format(score), save_dict)
 
 
 def greedy_search(model, percent):
@@ -478,7 +480,7 @@ if __name__ == '__main__':
 
     wandb_project = 'pruning_score'
     name = '128_greedy'
-    # wandb.init(project=wandb_project, name=name)
+    wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
     greedy_search_new(model, args.percent, train_loader)
