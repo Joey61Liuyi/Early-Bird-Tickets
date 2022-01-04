@@ -20,14 +20,6 @@ import wandb
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 
-def get_batch_jacobian(net, x, target, device):
-    net.zero_grad()
-    x.requires_grad_(True)
-    y = net(x)
-    y.backward(torch.ones_like(y))
-    jacob = x.grad.detach()
-    return jacob, target.detach(), y.detach()
-
 
 def create_model(model, cfg, cfg_mask):
     if args.arch.endswith('lp'):
@@ -83,6 +75,16 @@ def create_model(model, cfg, cfg_mask):
             m1.weight.data = m0.weight.data[:, idx0].clone()
             m1.bias.data = m0.bias.data.clone()
     return newmodel
+
+
+
+def get_batch_jacobian(net, x, target, device):
+    net.zero_grad()
+    x.requires_grad_(True)
+    y = net(x)
+    y.backward(torch.ones_like(y))
+    jacob = x.grad.detach()
+    return jacob, target.detach(), y.detach()
 
 
 def check_score(newmodel, train_loader):
@@ -261,7 +263,7 @@ def count_channel(model):
     return total, form
 
 def greedy_search_new(model, percent, train_loader):
-    buffer = 11
+    buffer = 33
     total, form = count_channel(model)
     channel_num = total
     progress_index = 0
@@ -619,13 +621,13 @@ if __name__ == '__main__':
 
 
     wandb_project = 'pruning_score'
-    name = 'greedy_increase'
+    name = '128_greedy'
     wandb.init(project=wandb_project, name=name)
 
     # random_search(cfg_mask_all, args.percent)
-    # greedy_search_new(model, args.percent, train_loader)
+    greedy_search_new(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-    greedy_search_increase(model, args.percent, train_loader)
+
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()

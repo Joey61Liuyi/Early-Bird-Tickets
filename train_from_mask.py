@@ -14,11 +14,10 @@ import copy
 import wandb
 import os
 
-def create_model(model, cfg, cfg_mask):
+def create_model(model, cfg, cfg_mask, state_dict=None):
     arch = 'vgg'
     dataset = 'cifar100'
     newmodel = models.__dict__[arch](dataset=dataset, cfg =cfg)
-
     layer_id_in_cfg = 0
     start_mask = np.ones(3)
     end_mask = cfg_mask[layer_id_in_cfg]
@@ -61,6 +60,9 @@ def create_model(model, cfg, cfg_mask):
                 idx0 = np.resize(idx0, (1,))
             m1.weight.data = m0.weight.data[:, idx0].clone()
             m1.bias.data = m0.bias.data.clone()
+    if checkpoint:
+        newmodel.load_state_dict(state_dict)
+
     return newmodel
 
 def updateBN():
@@ -135,28 +137,30 @@ def test(model, test_loader):
 
 if __name__ == '__main__':
     # data = np.load('1633.66.npy', allow_pickle=True)
-    mask_list = ['1610.43.npy']
+    mask_list = ['1628.36.pth']
     wandb_project = 'pruning_score'
     for mask in mask_list:
-        wandb.init(project=wandb_project, name='greedy')
+        wandb.init(project=wandb_project, name='train_greedy')
         seed = 1
         np.random.seed(seed)
         torch.manual_seed(seed)
-        mask_name = '25-1632.01.npy'
-        data = np.load(mask_name, allow_pickle=True)
-        data = data.item()
+        # mask_name = '25-1632.01.npy'
+        # data = np.load(mask_name, allow_pickle=True)
+        checkpoint = torch.load(mask)
+        data = checkpoint
+        # data = data.item()
         cfg = data['cfg']
         cfg_mask = data['cfg_mask']
-        # if '-' in mask:
-        for i in range(len(cfg_mask)):
-            cfg_mask[i] = np.asarray(cfg_mask[i].cpu().numpy())
+        state_dict = data['state_dict']
+        # for i in range(len(cfg_mask)):
+        #     cfg_mask[i] = np.asarray(cfg_mask[i].cpu().numpy())
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         batch_size = 128
         test_batch_size = 128
         arch = 'vgg'
         dataset = 'cifar100'
         model = models.__dict__[arch](dataset=dataset, depth = 16)
-        model = create_model(model, cfg, cfg_mask)
+        model = create_model(model, cfg, cfg_mask, state_dict)
         model.to('cuda')
 
         if dataset == 'cifar10':
@@ -218,7 +222,7 @@ if __name__ == '__main__':
 
         print("Best accuracy: " + str(best_prec1))
         history_score[-1][0] = best_prec1
-        print(mask_name)
+        print(mask)
         wandb.finish()
 
     # print(data)
