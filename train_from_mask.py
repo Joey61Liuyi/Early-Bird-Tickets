@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # @Time    : 2021/12/28 14:22
 # @Author  : LIU YI
-
+import argparse
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,58 +13,6 @@ import models
 import copy
 import wandb
 import os
-
-def create_model(model, cfg, cfg_mask, state_dict=None):
-    arch = 'vgg'
-    dataset = 'cifar100'
-    newmodel = models.__dict__[arch](dataset=dataset, cfg =cfg)
-    layer_id_in_cfg = 0
-    start_mask = np.ones(3)
-    end_mask = cfg_mask[layer_id_in_cfg]
-    for [m0, m1] in zip(model.modules(), newmodel.modules()):
-        if isinstance(m0, nn.BatchNorm2d):
-            if np.sum(end_mask) == 0:
-                continue
-            idx1 = np.squeeze(np.argwhere(end_mask))
-            if idx1.size == 1:
-                idx1 = np.resize(idx1, (1,))
-            m1.weight.data = m0.weight.data[idx1.tolist()].clone()
-            m1.bias.data = m0.bias.data[idx1.tolist()].clone()
-            m1.running_mean = m0.running_mean[idx1.tolist()].clone()
-            m1.running_var = m0.running_var[idx1.tolist()].clone()
-            layer_id_in_cfg += 1
-            start_mask = copy.copy(end_mask)
-            if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
-                end_mask = cfg_mask[layer_id_in_cfg]
-        elif isinstance(m0, nn.Conv2d):
-            if np.sum(end_mask) == 0:
-                continue
-            idx0 = np.squeeze(np.argwhere(start_mask))
-            idx1 = np.squeeze(np.argwhere(end_mask))
-            # random set for test
-            # new_end_mask = np.asarray(end_mask.cpu().numpy())
-            # new_end_mask = np.append(new_end_mask[int(len(new_end_mask)/2):], new_end_mask[:int(len(new_end_mask)/2)])
-            # idx1 = np.squeeze(np.argwhere(new_end_mask))
-
-            # print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
-            if idx0.size == 1:
-                idx0 = np.resize(idx0, (1,))
-            if idx1.size == 1:
-                idx1 = np.resize(idx1, (1,))
-            w1 = m0.weight.data[:, idx0.tolist(), :, :].clone()
-            w1 = w1[idx1.tolist(), :, :, :].clone()
-            m1.weight.data = w1.clone()
-        elif isinstance(m0, nn.Linear):
-            idx0 = np.squeeze(np.argwhere(start_mask))
-            if idx0.size == 1:
-                idx0 = np.resize(idx0, (1,))
-            m1.weight.data = m0.weight.data[:, idx0].clone()
-            m1.bias.data = m0.bias.data.clone()
-    if checkpoint:
-        newmodel.load_state_dict(state_dict)
-
-    return newmodel
-
 def updateBN():
     for m in model.modules():
         if isinstance(m, nn.BatchNorm2d):
@@ -137,30 +85,42 @@ def test(model, test_loader):
 
 if __name__ == '__main__':
     # data = np.load('1633.66.npy', allow_pickle=True)
-    mask_list = ['1628.36.pth']
+    parser = argparse.ArgumentParser(description='PyTorch Slimming CIFAR prune')
+    parser.add_argument('--dataset', type=str, default='cifar100',
+                        help='training dataset (default: cifar10)')
+    parser.add_argument('--arch', default='vgg', type=str,
+                        help='architecture to use')
+    parser.add_argument('--depth', type=int, default=16,
+                        help='depth of the vgg')
+
+    args = parser.parse_args()
+
+    mask_list = ['1654.07.pth']
     wandb_project = 'pruning_score'
     for mask in mask_list:
-        wandb.init(project=wandb_project, name='train_greedy')
+        # wandb.init(project=wandb_project, name='train_greedy')
         seed = 1
         np.random.seed(seed)
         torch.manual_seed(seed)
         # mask_name = '25-1632.01.npy'
         # data = np.load(mask_name, allow_pickle=True)
-        checkpoint = torch.load(mask)
-        data = checkpoint
-        # data = data.item()
-        cfg = data['cfg']
-        cfg_mask = data['cfg_mask']
-        state_dict = data['state_dict']
+        model = torch.load(mask)
+        # data = checkpoint
+        # # data = data.item()
+        # cfg = data['cfg']
+        # cfg_mask = data['cfg_mask']
+        # state_dict = data['state_dict']
         # for i in range(len(cfg_mask)):
         #     cfg_mask[i] = np.asarray(cfg_mask[i].cpu().numpy())
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         batch_size = 128
         test_batch_size = 128
-        arch = 'vgg'
+        # arch = 'vgg'
         dataset = 'cifar100'
-        model = models.__dict__[arch](dataset=dataset, depth = 16)
-        model = create_model(model, cfg, cfg_mask, state_dict)
+        # model = models.__dict__[arch](dataset=dataset, cfg=cfg)
+        # model = (state_dict)
+        # model = create_model(model, cfg, cfg_mask)
+        # model.load(checkpoint)
         model.to('cuda')
 
         if dataset == 'cifar10':

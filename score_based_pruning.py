@@ -18,10 +18,13 @@ import wandb
 import models
 import wandb
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
-
+from model_complexity import get_model_infos
 
 
 def create_model(model, cfg, cfg_mask):
+
+    while 0 in cfg:
+        cfg.remove(0)
     if args.arch.endswith('lp'):
         # model = models.__dict__[args.arch](bits_A=args.bits_A, bits_E=args.bits_E, bits_W=args.bits_W, dataset=args.dataset, depth=args.depth)
         newmodel = models.__dict__[args.arch](8, 8, 32, dataset=args.dataset, depth=args.depth)
@@ -32,48 +35,122 @@ def create_model(model, cfg, cfg_mask):
     else:
         newmodel = models.__dict__[args.arch](dataset=args.dataset, cfg = cfg)
 
+    # for [m0, m1] in zip(model.modules(), newmodel.modules()):
+    #     if isinstance(m0, nn.BatchNorm2d):
+    #         if np.sum(end_mask) == 0:
+    #             continue
+    #         idx1 = np.squeeze(np.argwhere(end_mask))
+    #         if idx1.size == 1:
+    #             idx1 = np.resize(idx1, (1,))
+    #         m1.weight.data = m0.weight.data[idx1.tolist()].clone()
+    #         m1.bias.data = m0.bias.data[idx1.tolist()].clone()
+    #         m1.running_mean = m0.running_mean[idx1.tolist()].clone()
+    #         m1.running_var = m0.running_var[idx1.tolist()].clone()
+    #         layer_id_in_cfg += 1
+    #         start_mask = copy.copy(end_mask)
+    #         if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
+    #             end_mask = cfg_mask[layer_id_in_cfg]
+    #     elif isinstance(m0, nn.Conv2d):
+    #         if np.sum(end_mask) == 0:
+    #             continue
+    #         idx0 = np.squeeze(np.argwhere(start_mask))
+    #         idx1 = np.squeeze(np.argwhere(end_mask))
+    #         # random set for test
+    #         # new_end_mask = np.asarray(end_mask.cpu().numpy())
+    #         # new_end_mask = np.append(new_end_mask[int(len(new_end_mask)/2):], new_end_mask[:int(len(new_end_mask)/2)])
+    #         # idx1 = np.squeeze(np.argwhere(new_end_mask))
+    #
+    #         # print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
+    #         if idx0.size == 1:
+    #             idx0 = np.resize(idx0, (1,))
+    #         if idx1.size == 1:
+    #             idx1 = np.resize(idx1, (1,))
+    #         w1 = m0.weight.data[:, idx0.tolist(), :, :].clone()
+    #         w1 = w1[idx1.tolist(), :, :, :].clone()
+    #         m1.weight.data = w1.clone()
+    #     elif isinstance(m0, nn.Linear):
+    #         idx0 = np.squeeze(np.argwhere(start_mask))
+    #         if idx0.size == 1:
+    #             idx0 = np.resize(idx0, (1,))
+    #         m1.weight.data = m0.weight.data[:, idx0].clone()
+    #         m1.bias.data = m0.bias.data.clone()
+
     layer_id_in_cfg = 0
     start_mask = np.ones(3)
     end_mask = cfg_mask[layer_id_in_cfg]
-    for [m0, m1] in zip(model.modules(), newmodel.modules()):
+    parameter_buffer = {}
+
+    for m0 in model.modules():
         if isinstance(m0, nn.BatchNorm2d):
+            key = str(layer_id_in_cfg) + 'BatchNorm'
+            value = []
             if np.sum(end_mask) == 0:
-                continue
-            idx1 = np.squeeze(np.argwhere(end_mask))
-            if idx1.size == 1:
-                idx1 = np.resize(idx1, (1,))
-            m1.weight.data = m0.weight.data[idx1.tolist()].clone()
-            m1.bias.data = m0.bias.data[idx1.tolist()].clone()
-            m1.running_mean = m0.running_mean[idx1.tolist()].clone()
-            m1.running_var = m0.running_var[idx1.tolist()].clone()
+                pass
+            else:
+                idx1 = np.squeeze(np.argwhere(end_mask))
+                if idx1.size == 1:
+                    idx1 = np.resize(idx1, (1,))
+                value.append(m0.weight.data[idx1.tolist()].clone())
+                value.append(m0.bias.data[idx1.tolist()].clone())
+                value.append(m0.running_mean[idx1.tolist()].clone())
+                value.append(m0.running_var[idx1.tolist()].clone())
+                start_mask = copy.copy(end_mask)
+            parameter_buffer[key] = value
             layer_id_in_cfg += 1
-            start_mask = copy.copy(end_mask)
             if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
                 end_mask = cfg_mask[layer_id_in_cfg]
-        elif isinstance(m0, nn.Conv2d):
-            if np.sum(end_mask) == 0:
-                continue
-            idx0 = np.squeeze(np.argwhere(start_mask))
-            idx1 = np.squeeze(np.argwhere(end_mask))
-            # random set for test
-            # new_end_mask = np.asarray(end_mask.cpu().numpy())
-            # new_end_mask = np.append(new_end_mask[int(len(new_end_mask)/2):], new_end_mask[:int(len(new_end_mask)/2)])
-            # idx1 = np.squeeze(np.argwhere(new_end_mask))
 
-            # print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
-            if idx0.size == 1:
-                idx0 = np.resize(idx0, (1,))
-            if idx1.size == 1:
-                idx1 = np.resize(idx1, (1,))
-            w1 = m0.weight.data[:, idx0.tolist(), :, :].clone()
-            w1 = w1[idx1.tolist(), :, :, :].clone()
-            m1.weight.data = w1.clone()
+        elif isinstance(m0, nn.Conv2d):
+            key = str(layer_id_in_cfg) + 'Conv'
+            value = []
+            if np.sum(end_mask) == 0:
+                pass
+            else:
+                idx0 = np.squeeze(np.argwhere(start_mask))
+                idx1 = np.squeeze(np.argwhere(end_mask))
+                if idx0.size == 1:
+                    idx0 = np.resize(idx0, (1,))
+                if idx1.size == 1:
+                    idx1 = np.resize(idx1, (1,))
+
+                w1 = m0.weight.data[:, idx0.tolist(), :, :].clone()
+                w1 = w1[idx1.tolist(), :, :, :].clone()
+                value.append(w1.clone())
+            parameter_buffer[key] = value
         elif isinstance(m0, nn.Linear):
+            key = str(layer_id_in_cfg) + 'Linear'
+            value = []
             idx0 = np.squeeze(np.argwhere(start_mask))
             if idx0.size == 1:
                 idx0 = np.resize(idx0, (1,))
-            m1.weight.data = m0.weight.data[:, idx0].clone()
-            m1.bias.data = m0.bias.data.clone()
+            value.append(m0.weight.data[:, idx0].clone())
+            value.append(m0.bias.data.clone())
+            parameter_buffer[key] = value
+
+    layer_id_in_cfg = 0
+    for m1 in newmodel.modules():
+        if isinstance(m1, nn.BatchNorm2d):
+            key = str(layer_id_in_cfg) + 'BatchNorm'
+            while len(parameter_buffer[key]) == 0:
+                layer_id_in_cfg += 1
+                key = str(layer_id_in_cfg) + 'BatchNorm'
+            m1.weight.data = parameter_buffer[key][0]
+            m1.bias.data = parameter_buffer[key][1]
+            m1.running_mean = parameter_buffer[key][2]
+            m1.running_var = parameter_buffer[key][3]
+            layer_id_in_cfg += 1
+
+        elif isinstance(m1, nn.Conv2d):
+            key = str(layer_id_in_cfg) + 'Conv'
+            while len(parameter_buffer[key]) == 0:
+                layer_id_in_cfg += 1
+                key = str(layer_id_in_cfg) + 'Conv'
+            m1.weight.data = parameter_buffer[key][0]
+        elif isinstance(m1, nn.Linear):
+            key = str(layer_id_in_cfg) + 'Linear'
+            m1.weight.data = parameter_buffer[key][0]
+            m1.bias.data = parameter_buffer[key][1]
+            pass
     return newmodel
 
 
@@ -87,8 +164,9 @@ def get_batch_jacobian(net, x, target, device):
     return jacob, target.detach(), y.detach()
 
 
-def check_score(newmodel, train_loader):
-
+def check_score(model, train_loader):
+    newmodel = copy.deepcopy(model)
+    reset_seed()
     newmodel.K = np.zeros((args.test_batch_size, args.test_batch_size))
     def counting_forward_hook(module, inp, out):
         try:
@@ -129,6 +207,81 @@ def check_score(newmodel, train_loader):
     score = np.mean(s)
     return score
 
+
+def check_channel_score(model, train_loader):
+    newmodel = copy.deepcopy(model)
+    reset_seed()
+    def counting_forward_hook(module, inp, out):
+        try:
+            # if not module.visited_backwards:
+            #     return
+            if isinstance(inp, tuple):
+                inp = inp[0]
+            K_layer = np.zeros((args.test_batch_size, args.test_batch_size))
+            inp = inp.permute(1, 0, 2, 3)
+            inp = inp.view(inp.size(0), inp.size(1), -1)
+            inp = (inp > 0).float()
+            score_list = []
+            for i in range(inp.size(0)):
+                x = inp[i]
+                K1 = x @ x.t()
+                K2 = (1. - x) @ (1. - x.t())
+                K = K1.cpu().numpy() + K2.cpu().numpy()
+                K_layer += K
+                s_, ld = np.linalg.slogdet(K)
+                score_list.append(ld)
+            s_, ld = np.linalg.slogdet(K_layer)
+            newmodel.layer_score.append(ld)
+            newmodel.channel_score.append(score_list)
+        except Exception as e:
+            print(e)
+
+    def counting_backward_hook(module, inp, out):
+        module.visited_backwards = True
+
+    def counting_backward_hook_ini(module, inp, out):
+        newmodel.layer_score = []
+        newmodel.channel_score = []
+
+    for name, module in newmodel.named_modules():
+        if 'ReLU' in str(type(module)):
+            # hooks[name] = module.register_forward_hook(counting_hook)
+            module.register_forward_hook(counting_forward_hook)
+
+        if name == 'feature.0':
+            module.register_forward_hook(counting_backward_hook_ini)
+
+    newmodel = newmodel.to(device)
+    s = []
+    layer_s = []
+    for j in range(5):
+        data_iterator = iter(train_loader)
+        x, target = next(data_iterator)
+        x2 = torch.clone(x)
+        x2 = x2.to(device)
+        x, target = x.to(device), target.to(device)
+        # jacobs, labels, y = get_batch_jacobian(newmodel, x, target, device)
+        newmodel(x2.to(device))
+        s.append(copy.deepcopy(newmodel.channel_score))
+        layer_s.append(copy.deepcopy(newmodel.layer_score))
+
+
+    layer_s = np.array(layer_s)
+    layer_s = np.mean(layer_s, axis=0)
+    channel_score = []
+
+    for channel in range(len(s[0])):
+        tep = []
+        for j in range(len(s)):
+            tep.append(s[j][channel])
+        tep = np.array(tep)
+        tep = np.mean(tep, axis=0)
+        channel_score.append(tep)
+    # s = np.array(s).astype(float)
+    # # s = np.mean(s, axis=0)
+    # s = s.transpose()
+    # tep = np.array(s[0])
+    return layer_s, channel_score
 
 def pruning(model):
     total = 0
@@ -243,7 +396,7 @@ def random_search(cfg_mask_all, percent):
             np.save('{:.2f}.npy'.format(score_test), info_dict)
 
 
-def reset_seed(seed):
+def reset_seed(seed=1):
     np.random.seed(seed)
     torch.manual_seed(seed)
     random.seed(seed)
@@ -324,6 +477,119 @@ def greedy_search_new(model, percent, train_loader):
     }
     torch.save(save_dict, '{:.2f}.pth'.format(score))
     # np.save('{:.2f}.npy'.format(score), save_dict)
+
+
+def channel_score_search(model, percent, train_loader):
+    total, form = count_channel(model)
+    indicator = np.ones(total)
+    cfg, cfg_mask = create_cfg(form, indicator)
+    new_model = copy.copy(model)
+    for i in range(0, len(cfg_mask)):
+        # score = check_score(new_model, train_loader)
+        channel_score = check_channel_score(new_model, train_loader)
+        channel_score = channel_score[i]
+        channel_score_rank = copy.deepcopy(channel_score)
+        channel_score_rank.sort()
+        thre_index = int(len(channel_score)*percent)
+        thre_score = channel_score_rank[thre_index-1]
+        mask = [0 if j <= thre_score else 1 for j in channel_score]
+        cfg_mask[i] = mask
+        indicator_tep = []
+        for j in cfg_mask:
+            indicator_tep += list(j)
+        cfg_new, cfg_mask_new = create_cfg(form, indicator_tep)
+        new_model = create_model(model, cfg_new, cfg_mask_new)
+        score = check_score(new_model, train_loader)
+        print(score)
+
+def rate_check(model, percent, train_loader):
+    xshape = (1, 3, 32, 32)
+    flops_original, param_original = get_model_infos(model, xshape)
+    total, form = count_channel(model)
+    indicator = np.ones(total)
+    cfg, cfg_mask = create_cfg(form, indicator)
+    f_list = []
+    p_list = []
+
+    for i in range(len(cfg_mask)):
+        cfg_mask_new = copy.deepcopy(cfg_mask)
+        cfg_mask_new[i][0:30] = 0
+        indicator_new = []
+        for one in cfg_mask_new:
+            indicator_new += list(one)
+        cfg_new, cfg_mask_new = create_cfg(form, indicator_new)
+        model_new = create_model(model, cfg_new, cfg_mask_new)
+        flops, param = get_model_infos(model_new, xshape)
+        flops_rate = (flops_original-flops)/flops_original
+        param_rate = (param_original-param)/param_original
+        f_list.append(flops_rate)
+        p_list.append(param_rate)
+    print("")
+
+
+def layer_remove_check(model, train_loader):
+
+    baseline_f_rate = 260292527/313772032
+    baseline_p_rate = 8300726/15299748
+
+    xshape = (1, 3, 32, 32)
+    flops_original, param_original = get_model_infos(model, xshape)
+    score = check_score(model, train_loader)
+    score_layer_original, score_channel_original = check_channel_score(model, train_loader)
+    total, form = count_channel(model)
+    indicator = np.ones(total)
+    cfg, cfg_mask = create_cfg(form, indicator)
+    cfg_mask[-3] = np.zeros(len(cfg_mask[-3]))
+    cfg_mask[-2] = np.zeros(len(cfg_mask[-2]))
+    cfg_mask[7] = np.zeros(len(cfg_mask[7]))
+    cfg_mask[8] = np.zeros(len(cfg_mask[8]))
+    # cfg_mask[4] = np.zeros(len(cfg_mask[4]))
+    indicator_new = []
+    for one in cfg_mask:
+        indicator_new += list(one)
+    cfg_new, cfg_mask_new = create_cfg(form, indicator_new)
+    model_new = create_model(model, cfg_new, cfg_mask_new)
+    flops, param = get_model_infos(model_new, xshape)
+    score_prune = check_score(model_new, train_loader)
+    f_rate = flops/flops_original
+    p_rate = param/param_original
+
+    score_layer, score_channel = check_channel_score(model_new, train_loader)
+    for one in score_channel:
+        print(np.sum(one == -np.inf))
+
+    #
+    # save_dict = {
+    #     'state_dict': model_new.state_dict(),
+    #     'cfg': cfg_new,
+    #     'cfg_mask': cfg_mask_new,
+    #     'score': score_prune
+    # }
+    # torch.save(model_new, '{:.2f}.pth'.format(score_prune))
+    # model_new = models.__dict__[args.arch](dataset=args.dataset, cfg = cfg_new)
+    # score_prune = check_score(model_new, train_loader)
+    # score_layer, score_channel = check_channel_score(model_new, train_loader)
+    torch.save(model_new, '{:.2f}.pth'.format(score_prune))
+    print("")
+
+
+    # f_list = []
+    # p_list = []
+    #
+    # for i in range(len(cfg_mask)):
+    #     cfg_mask_new = copy.deepcopy(cfg_mask)
+    #     cfg_mask_new[i][0:30] = 0
+    #     indicator_new = []
+    #     for one in cfg_mask_new:
+    #         indicator_new += list(one)
+    #     cfg_new, cfg_mask_new = create_cfg(form, indicator_new)
+    #     model_new = create_model(model, cfg_new, cfg_mask_new)
+    #     flops, param = get_model_infos(model_new, xshape)
+    #     flops_rate = (flops_original-flops)/flops_original
+    #     param_rate = (param_original-param)/param_original
+    #     f_list.append(flops_rate)
+    #     p_list.append(param_rate)
+
 
 def count_cfg_channel(cfg):
     form = copy.deepcopy(cfg)
@@ -421,8 +687,6 @@ def greedy_search_increase(model, percent, train_loader):
         'score': score
     }
     torch.save(save_dict, '{:.2f}.pth'.format(score))
-
-
 
 def greedy_search(model, percent, train_loader):
     total, form = count_channel(model)
@@ -622,12 +886,13 @@ if __name__ == '__main__':
 
     wandb_project = 'pruning_score'
     name = '128_greedy'
-    wandb.init(project=wandb_project, name=name)
-
+    # wandb.init(project=wandb_project, name=name)
+    #
     # random_search(cfg_mask_all, args.percent)
-    greedy_search_new(model, args.percent, train_loader)
+    # channel_score_search(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-
+    layer_remove_check(model, train_loader)
+    # rate_check(model, args.percent, train_loader)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()

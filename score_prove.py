@@ -16,6 +16,56 @@ import wandb
 # from models import *
 import models
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+import copy
+from score_based_pruning import reset_seed
+from model_complexity import get_model_infos
+
+
+def check_score(model, train_loader):
+    test_batch_size = 128
+    newmodel = copy.deepcopy(model)
+    reset_seed()
+    newmodel.K = np.zeros((test_batch_size, test_batch_size))
+    def counting_forward_hook(module, inp, out):
+        try:
+            if not module.visited_backwards:
+                return
+            if isinstance(inp, tuple):
+                inp = inp[0]
+            inp = inp.view(inp.size(0), -1)
+            x = (inp > 0).float()
+            K = x @ x.t()
+            K2 = (1. - x) @ (1. - x.t())
+            newmodel.K = newmodel.K + K.cpu().numpy() + K2.cpu().numpy()
+        except:
+            pass
+
+    def counting_backward_hook(module, inp, out):
+        module.visited_backwards = True
+
+    for name, module in newmodel.named_modules():
+        if 'ReLU' in str(type(module)):
+            # hooks[name] = module.register_forward_hook(counting_hook)
+            module.register_forward_hook(counting_forward_hook)
+            module.register_backward_hook(counting_backward_hook)
+
+    newmodel = newmodel.to(device)
+    s = []
+
+    for j in range(5):
+        data_iterator = iter(train_loader)
+        x, target = next(data_iterator)
+        x2 = torch.clone(x)
+        x2 = x2.to(device)
+        x, target = x.to(device), target.to(device)
+        jacobs, labels, y = get_batch_jacobian(newmodel, x, target, device)
+        newmodel(x2.to(device))
+        s_, ld = np.linalg.slogdet(newmodel.K)
+        s.append(ld)
+    score = np.mean(s)
+    return score
+
+
 
 # Prune settings
 parser = argparse.ArgumentParser(description='PyTorch Slimming CIFAR prune')
@@ -124,8 +174,8 @@ else:
                        ])),
         batch_size=args.test_batch_size, shuffle=True)
 
-def check_score(model, cfg, cfg_mask):
 
+def create_model(model, cfg, cfg_mask):
     if args.arch.endswith('lp'):
         # model = models.__dict__[args.arch](bits_A=args.bits_A, bits_E=args.bits_E, bits_W=args.bits_W, dataset=args.dataset, depth=args.depth)
         newmodel = models.__dict__[args.arch](8, 8, 32, dataset=args.dataset, depth=args.depth)
@@ -164,7 +214,7 @@ def check_score(model, cfg, cfg_mask):
             # new_end_mask = np.append(new_end_mask[int(len(new_end_mask)/2):], new_end_mask[:int(len(new_end_mask)/2)])
             # idx1 = np.squeeze(np.argwhere(new_end_mask))
 
-            print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
+            # print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
             if idx0.size == 1:
                 idx0 = np.resize(idx0, (1,))
             if idx1.size == 1:
@@ -178,49 +228,51 @@ def check_score(model, cfg, cfg_mask):
                 idx0 = np.resize(idx0, (1,))
             m1.weight.data = m0.weight.data[:, idx0].clone()
             m1.bias.data = m0.bias.data.clone()
-    newmodel.K = np.zeros((args.test_batch_size, args.test_batch_size))
+    return newmodel
 
-    def counting_forward_hook(module, inp, out):
-        try:
-            if not module.visited_backwards:
-                return
-            if isinstance(inp, tuple):
-                inp = inp[0]
-            inp = inp.view(inp.size(0), -1)
-            x = (inp > 0).float()
-            K = x @ x.t()
-            K2 = (1. - x) @ (1. - x.t())
-            newmodel.K = newmodel.K + K.cpu().numpy() + K2.cpu().numpy()
-        except:
-            pass
 
-    def counting_backward_hook(module, inp, out):
-        module.visited_backwards = True
-
-    for name, module in newmodel.named_modules():
-        if 'ReLU' in str(type(module)):
-            # hooks[name] = module.register_forward_hook(counting_hook)
-            module.register_forward_hook(counting_forward_hook)
-            module.register_backward_hook(counting_backward_hook)
-
-    newmodel = newmodel.to(device)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    s = []
-
-    for j in range(1):
-        data_iterator = iter(train_loader)
-        x, target = next(data_iterator)
-        x2 = torch.clone(x)
-        x2 = x2.to(device)
-        x, target = x.to(device), target.to(device)
-        jacobs, labels, y = get_batch_jacobian(newmodel, x, target, device)
-        newmodel(x2.to(device))
-        s_, ld = np.linalg.slogdet(newmodel.K)
-        s.append(ld)
-    score = np.mean(s)
-    return score
+#
+# def check_score(newmodel, train_loader):
+#
+#     newmodel.K = np.zeros((args.test_batch_size, args.test_batch_size))
+#     def counting_forward_hook(module, inp, out):
+#         try:
+#             if not module.visited_backwards:
+#                 return
+#             if isinstance(inp, tuple):
+#                 inp = inp[0]
+#             inp = inp.view(inp.size(0), -1)
+#             x = (inp > 0).float()
+#             K = x @ x.t()
+#             K2 = (1. - x) @ (1. - x.t())
+#             newmodel.K = newmodel.K + K.cpu().numpy() + K2.cpu().numpy()
+#         except:
+#             pass
+#
+#     def counting_backward_hook(module, inp, out):
+#         module.visited_backwards = True
+#
+#     for name, module in newmodel.named_modules():
+#         if 'ReLU' in str(type(module)):
+#             # hooks[name] = module.register_forward_hook(counting_hook)
+#             module.register_forward_hook(counting_forward_hook)
+#             module.register_backward_hook(counting_backward_hook)
+#
+#     newmodel = newmodel.to(device)
+#     s = []
+#
+#     for j in range(5):
+#         data_iterator = iter(train_loader)
+#         x, target = next(data_iterator)
+#         x2 = torch.clone(x)
+#         x2 = x2.to(device)
+#         x, target = x.to(device), target.to(device)
+#         jacobs, labels, y = get_batch_jacobian(newmodel, x, target, device)
+#         newmodel(x2.to(device))
+#         s_, ld = np.linalg.slogdet(newmodel.K)
+#         s.append(ld)
+#     score = np.mean(s)
+#     return score
 
 if args.cuda:
     model.cuda()
@@ -304,24 +356,34 @@ for i in range(args.start_epoch, args.end_epoch+1):
 # np.save(save_dir, overlap)
 wandb_project = 'pruning_score'
 name = 'trail'
-wandb.init(project=wandb_project, name=name)
+# wandb.init(project=wandb_project, name=name)
 best_info = {}
 best_score = 0
 
 bird = [15, 25, 40, 159]
 
+xshape = (1, 3, 32, 32)
+
+flops_original, param_origianl = get_model_infos(model, xshape)
+
 for i in range(args.start_epoch, args.end_epoch):
-    score = check_score(model, masks[i][1], masks[i][2])
+
+    model_new = create_model(model, masks[i][1], masks[i][2])
+    score = check_score(model_new, train_loader)
+    flop, param = get_model_infos(model_new, xshape)
     info_dict = {
         'epoch': i,
         'score': score,
         'cfg': masks[i][1],
-        'cfg_mask': masks[i][2]
+        'cfg_mask': masks[i][2],
+        'flop_pruning_rate': flop/flops_original,
+        'param_pruning_rate': param/param_origianl,
     }
-    wandb.log(info_dict)
+    # wandb.log(info_dict)
     print(score)
     if score > best_score:
         best_score = score
         best_info = info_dict
     if i in bird:
+        print(i, flop/flops_original, param/param_origianl, score)
         np.save('{}-{:.2f}.npy'.format(i, best_score), info_dict)
