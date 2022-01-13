@@ -530,23 +530,29 @@ def rate_check(model, percent, train_loader):
 def channel_remove_check(model, train_loader):
     baseline_f_rate = 260292527 / 313772032
     baseline_p_rate = 8300726 / 15299748
-
     xshape = (1, 3, 32, 32)
     flops_original, param_original = get_model_infos(model, xshape)
     score = check_score(model, train_loader)
     score_layer_original, score_channel_original = check_channel_score(model, train_loader)
     total, form = count_channel(model)
-    indicator = []
-    for i in range(len(score_channel_original)-1):
-        indicator += list(score_channel_original[i] != -np.inf)
-    indicator += list(np.ones(len(score_channel_original[len(score_channel_original)-1])))
-    cfg, cfg_mask = create_cfg(form, indicator)
-    model_new = create_model(model, cfg, cfg_mask)
+    indicator = np.ones(total)
+    cfg_original, cfg_mask_original = create_cfg(form, indicator)
+    cfg_mask = copy.deepcopy(cfg_mask_original)
+    model_new = copy.deepcopy(model)
+    for i in range(len(cfg_mask_original)-1):
+        score_layer, score_channel = check_channel_score(model_new, train_loader)
+        cfg_mask[i] = score_channel[i] != -np.inf
+        indicator = []
+        for one in cfg_mask:
+            indicator += list(one)
+        cfg, cfg_mask = create_cfg(form, indicator)
+        model_new = create_model(model, cfg, cfg_mask)
+
+    score_layer, score_channel = check_channel_score(model_new, train_loader)
     flops, param = get_model_infos(model_new, xshape)
     f_rate = flops/flops_original
     p_rate = param/param_original
     score_prune = check_score(model_new, train_loader)
-    score_layer, score_channel = check_channel_score(model_new, train_loader)
 
     for i in range(len(score_channel)):
         print(np.sum(score_channel[i] == -np.inf), len(score_channel[i]))
