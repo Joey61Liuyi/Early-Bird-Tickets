@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchvision import datasets, transforms
+from model_complexity import get_model_infos
 import models
 import copy
 import wandb
@@ -95,7 +96,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    mask_list = ['1654.07.pth']
+    mask_list = ['1662.05.pth']
     wandb_project = 'pruning_score'
     for mask in mask_list:
         # wandb.init(project=wandb_project, name='train_greedy')
@@ -174,7 +175,7 @@ if __name__ == '__main__':
             is_best = prec1 > best_prec1
             best_prec1 = max(prec1, best_prec1)
             # save_checkpoint({
-            #     'epoch': epoch + 1,
+            #     'epoch': epoch + 1,s
             #     'state_dict': model.state_dict(),
             #     'best_prec1': best_prec1,
             #     'optimizer': optimizer.state_dict(),
@@ -182,7 +183,12 @@ if __name__ == '__main__':
 
         print("Best accuracy: " + str(best_prec1))
         history_score[-1][0] = best_prec1
+        xshape = (1, 3, 32, 32)
+        flops, param = get_model_infos(model, xshape)
+        print(flops, param)
         print(mask)
-        wandb.finish()
+        # wandb.finish()
+
+
 
     # print(data)

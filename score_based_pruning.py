@@ -336,7 +336,8 @@ def create_cfg(cfg_mask_all, indicator):
     index = 0
     for i in range(len(cfg_mask_all)):
         if cfg_mask_all[i] != 'M':
-            cfg.append(int(np.sum(cfg_mask[index])))
+            if np.sum(cfg_mask[index]) != 0:
+                cfg.append(int(np.sum(cfg_mask[index])))
             index += 1
         else:
             cfg.append('M')
@@ -526,6 +527,32 @@ def rate_check(model, percent, train_loader):
         p_list.append(param_rate)
     print("")
 
+def channel_remove_check(model, train_loader):
+    baseline_f_rate = 260292527 / 313772032
+    baseline_p_rate = 8300726 / 15299748
+
+    xshape = (1, 3, 32, 32)
+    flops_original, param_original = get_model_infos(model, xshape)
+    score = check_score(model, train_loader)
+    score_layer_original, score_channel_original = check_channel_score(model, train_loader)
+    total, form = count_channel(model)
+    indicator = []
+    for i in range(len(score_channel_original)-1):
+        indicator += list(score_channel_original[i] != -np.inf)
+    indicator += list(np.ones(len(score_channel_original[len(score_channel_original)-1])))
+    cfg, cfg_mask = create_cfg(form, indicator)
+    model_new = create_model(model, cfg, cfg_mask)
+    flops, param = get_model_infos(model_new, xshape)
+    f_rate = flops/flops_original
+    p_rate = param/param_original
+    score_prune = check_score(model_new, train_loader)
+    score_layer, score_channel = check_channel_score(model_new, train_loader)
+
+    for i in range(len(score_channel)):
+        print(np.sum(score_channel[i] == -np.inf), len(score_channel[i]))
+
+    torch.save(model_new, 'channel_remove_rough_{:.2f}.pth'.format(score_prune))
+
 
 def layer_remove_check(model, train_loader):
 
@@ -539,10 +566,12 @@ def layer_remove_check(model, train_loader):
     total, form = count_channel(model)
     indicator = np.ones(total)
     cfg, cfg_mask = create_cfg(form, indicator)
-    cfg_mask[-3] = np.zeros(len(cfg_mask[-3]))
-    cfg_mask[-2] = np.zeros(len(cfg_mask[-2]))
-    cfg_mask[7] = np.zeros(len(cfg_mask[7]))
-    cfg_mask[8] = np.zeros(len(cfg_mask[8]))
+
+    # cut_list = [11,10,8,7,4,5,2,0]
+    cut_list = [11, 10]
+    for one in cut_list:
+        cfg_mask[one] = np.zeros(len(cfg_mask[one]))
+
     # cfg_mask[4] = np.zeros(len(cfg_mask[4]))
     indicator_new = []
     for one in cfg_mask:
@@ -555,8 +584,9 @@ def layer_remove_check(model, train_loader):
     p_rate = param/param_original
 
     score_layer, score_channel = check_channel_score(model_new, train_loader)
-    for one in score_channel:
-        print(np.sum(one == -np.inf))
+    # for one in score_channel:
+    #     print(np.sum(one == -np.inf), len(one))
+
 
     #
     # save_dict = {
@@ -891,8 +921,9 @@ if __name__ == '__main__':
     # random_search(cfg_mask_all, args.percent)
     # channel_score_search(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-    layer_remove_check(model, train_loader)
+    # layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
+    channel_remove_check(model, train_loader)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
