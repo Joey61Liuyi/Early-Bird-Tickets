@@ -1,14 +1,24 @@
 import argparse
+import copy
+
 import numpy as np
 import os
 
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
+import matplotlib
 from torch.autograd import Variable
 from torchvision import datasets, transforms
 
 # from models import *
 import models
+from model_complexity import get_model_infos
+from score_based_pruning import create_cfg
+from score_based_pruning import create_model
+from score_based_pruning import count_channel
+
+
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 # Prune settings
@@ -76,12 +86,14 @@ else:
 if args.cuda:
     model.cuda()
 
+import wandb
+wandb.init(project="pruning_score", name="bn_score")
+
 def pruning(model):
     total = 0
-    for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
-            total += m.weight.data.shape[0]
-
+    xshape = (1, 3, 32, 32)
+    flops_original, param_original = get_model_infos(model, xshape)
+    total, form = count_channel(model)
     bn = torch.zeros(total)
     index = 0
     for m in model.modules():
@@ -91,19 +103,44 @@ def pruning(model):
             index += size
 
     y, i = torch.sort(bn)
-    thre_index = int(total * args.percent)
-    thre = y[thre_index]
-    # print('Pruning threshold: {}'.format(thre))
-    mask = torch.zeros(total)
-    index = 0
-    for k, m in enumerate(model.modules()):
-        if isinstance(m, nn.BatchNorm2d):
-            size = m.weight.data.numel()
-            weight_copy = m.weight.data.abs().clone()
-            _mask = weight_copy.gt(thre.cuda()).float().cuda()
-            mask[index:(index+size)] = _mask.view(-1)
-            # print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.format(k, _mask.shape[0], int(torch.sum(_mask))))
-            index += size
+    # tep = copy.deepcopy(y.numpy())
+    # plt.hist(tep, bins=20)
+    # plt.show()
+
+    for thre_index in range(total):
+        thre = y[thre_index]
+        mask = torch.zeros(total)
+        index = 0
+        for k, m in enumerate(model.modules()):
+            if isinstance(m, nn.BatchNorm2d):
+                size = m.weight.data.numel()
+                weight_copy = m.weight.data.abs().clone()
+                _mask = weight_copy.gt(thre.cuda()).float().cuda()
+                mask[index:(index + size)] = _mask.view(-1)
+                # print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.format(k, _mask.shape[0], int(torch.sum(_mask))))
+                index += size
+
+        cfg, cfg_mask = create_cfg(form, mask.numpy())
+        model_new = create_model(model, cfg, cfg_mask)
+        flops, param = get_model_infos(model_new, xshape)
+
+        info_dict = {
+            "channels": np.sum(mask.numpy()),
+            "f_rate": flops/flops_original,
+            "param": param/param_original,
+            "cfg": cfg
+        }
+        wandb.log(info_dict)
+        if flops/flops_original <= 0.8296:
+            break
+    torch.save(model_new, "bn_pruning.pth")
+
+    # thre_index = int(total * args.percent)
+    # thre = y[thre_index]
+    # # print('Pruning threshold: {}'.format(thre))
+
+
+
 
     # print('Pre-processing Successful!')
     return mask
@@ -132,17 +169,17 @@ size = best_mask.size(0)
 epochs = args.end_epoch - args.start_epoch + 1
 overlap = np.zeros((epochs, epochs))
 save_dir = os.path.join(args.save, 'overlap_'+str(args.percent))
-masks = []
+# masks = []
 
-for i in range(args.start_epoch, args.end_epoch+1):
-    resume = args.save + '/ckpt' + str(i-1) + '.pth.tar'
-    checkpoint = torch.load(resume)
-    model.load_state_dict(checkpoint['state_dict'])
-    masks.append(pruning(model))
+# for i in range(args.start_epoch, args.end_epoch+1):
+resume = args.save + '/ckpt' + str(args.end_epoch) + '.pth.tar'
+checkpoint = torch.load(resume)
+model.load_state_dict(checkpoint['state_dict'])
+mask = pruning(model)
 
-for i in range(args.start_epoch, args.end_epoch+1):
-    for j in range(args.start_epoch, args.end_epoch+1):
-        overlap[i-1, j-1] = float(torch.sum(masks[i-1] == masks[j-1])) / size
-        print('overlap[{}, {}] = {}'.format(i-1, j-1, overlap[i-1, j-1]))
+# for i in range(args.start_epoch, args.end_epoch+1):
+#     for j in range(args.start_epoch, args.end_epoch+1):
+#         overlap[i-1, j-1] = float(torch.sum(masks[i-1] == masks[j-1])) / size
+#         print('overlap[{}, {}] = {}'.format(i-1, j-1, overlap[i-1, j-1]))
 
-np.save(save_dir, overlap)
+# np.save(save_dir, overlap)

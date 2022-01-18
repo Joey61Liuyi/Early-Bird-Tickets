@@ -25,15 +25,15 @@ def create_model(model, cfg, cfg_mask):
 
     while 0 in cfg:
         cfg.remove(0)
-    if args.arch.endswith('lp'):
-        # model = models.__dict__[args.arch](bits_A=args.bits_A, bits_E=args.bits_E, bits_W=args.bits_W, dataset=args.dataset, depth=args.depth)
-        newmodel = models.__dict__[args.arch](8, 8, 32, dataset=args.dataset, depth=args.depth)
-    elif args.dataset == 'imagenet':
-        newmodel = models.__dict__[args.arch](pretrained=False)
-        if len(args.gpu_ids) > 1:
-            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-    else:
-        newmodel = models.__dict__[args.arch](dataset=args.dataset, cfg = cfg)
+    # if args.arch.endswith('lp'):
+    #     # model = models.__dict__[args.arch](bits_A=args.bits_A, bits_E=args.bits_E, bits_W=args.bits_W, dataset=args.dataset, depth=args.depth)
+    #     newmodel = models.__dict__[args.arch](8, 8, 32, dataset=args.dataset, depth=args.depth)
+    # elif args.dataset == 'imagenet':
+    #     newmodel = models.__dict__[args.arch](pretrained=False)
+    #     if len(args.gpu_ids) > 1:
+    #         model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+    # else:
+    newmodel = models.__dict__['vgg'](dataset='cifar100', cfg = cfg)
 
     # for [m0, m1] in zip(model.modules(), newmodel.modules()):
     #     if isinstance(m0, nn.BatchNorm2d):
