@@ -228,11 +228,11 @@ def check_channel_score(model, train_loader):
                 K2 = (1. - x) @ (1. - x.t())
                 K = K1.cpu().numpy() + K2.cpu().numpy()
                 K_layer += K
-                s_, ld = np.linalg.slogdet(K)
-                # s_, ld = np.linalg.slogdet(K/inp.size(2))
+                # s_, ld = np.linalg.slogdet(K)
+                s_, ld = np.linalg.slogdet(K/inp.size(2))
                 score_list.append(ld)
-            # s_, ld = np.linalg.slogdet(K_layer/(inp.size(0)*inp.size(2)))
-            s_, ld = np.linalg.slogdet(K_layer)
+            s_, ld = np.linalg.slogdet(K_layer/(inp.size(0)*inp.size(2)))
+            # s_, ld = np.linalg.slogdet(K_layer)
             newmodel.layer_score.append(ld)
             newmodel.channel_score.append(score_list)
         except Exception as e:
@@ -575,6 +575,7 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
             "cfg": cfg,
             "index": index,
         }
+        wandb.log(info_dict)
         index += 1
 
     score_prune = check_score(model_new, train_loader)
@@ -627,7 +628,7 @@ def layer_remove_check(model, train_loader):
     # model_new = models.__dict__[args.arch](dataset=args.dataset, cfg = cfg_new)
     # score_prune = check_score(model_new, train_loader)
     # score_layer, score_channel = check_channel_score(model_new, train_loader)
-    torch.save(model_new, '{:.2f}.pth'.format(score_prune))
+    torch.save(model_new, '{}-{:.2f}.pth'.format(len(cut_list),score_prune))
     print("")
 
 
@@ -942,15 +943,15 @@ if __name__ == '__main__':
 
 
     wandb_project = 'pruning_score'
-    name = ''
+    name = 'with_out_normalization_60'
     wandb.init(project=wandb_project, name=name)
     #
     # random_search(cfg_mask_all, args.percent)
     # channel_score_search(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-    # layer_remove_check(model, train_loader)
+    layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
-    channel_remove_check(model, train_loader, 0.6, 0.2)
+    # channel_remove_check(model, train_loader, 0.6, 0.2)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
