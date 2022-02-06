@@ -583,6 +583,91 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
     torch.save(model_new, 'channel_remove_n_f{:.4f}_p{:.4f}_{:.2f}.pth'.format(f_rate, p_rate, score_prune))
 
 
+def ratio_cfg(form, ratio):
+    output = []
+    for i in range(len(form)-1):
+        if form[i] != 'M':
+            form[i] = round(form[i]*ratio)
+
+    return form
+
+def layer_wise_pruning(model, train_loader, pruning_rate):
+
+    xshape = (1, 3, 32, 32)
+    flops_original, param_original = get_model_infos(model, xshape)
+    score = check_score(model, train_loader)
+    score_layer_original, score_channel_original = check_channel_score(model, train_loader)
+    total, form = count_channel(model)
+    cfg_goal = ratio_cfg(copy.deepcopy(form), pruning_rate)
+    # model_new = models.__dict__['vgg'](dataset='cifar100', cfg=cfg_goal)
+    # flops, param = get_model_infos(model_new, xshape)
+    # f_rate = flops / flops_original
+    # p_rate = param / param_original
+    # score = check_score(model_new, train_loader)
+    while 'M' in cfg_goal:
+        cfg_goal.remove('M')
+    indicator = np.ones(total)
+    cfg_original, cfg_mask_original = create_cfg(form, indicator)
+    cfg_mask = copy.deepcopy(cfg_mask_original)
+    model_new = copy.deepcopy(model)
+    for i in range(len(cfg_mask_original)-1):
+        score_layer, score_channel = check_channel_score(model_new, train_loader)
+        pruning_num = np.sum(cfg_mask[i])-cfg_goal[i]
+        ranked_score = copy.deepcopy(score_channel[i])
+        ranked_score.sort()
+        thre_score = ranked_score[int(pruning_num)-1]
+
+        if thre_score != -np.inf:
+            cfg_mask[i] = score_channel[i] > thre_score
+        else:
+            tep = score_channel[i] == -np.inf
+            index = np.where(tep == 1)
+            index = np.random.choice(index[0], int(pruning_num), replace= False)
+            tep = np.array(cfg_mask[i])
+            tep[index] = 0
+            cfg_mask[i] = list(tep)
+
+        indicator = []
+        for one in cfg_mask:
+            indicator += list(one)
+        cfg, cfg_mask = create_cfg(form, indicator)
+        model_new = create_model(model, cfg, cfg_mask)
+        flops, param = get_model_infos(model_new, xshape)
+        f_rate = flops / flops_original
+        p_rate = param / param_original
+        print(f_rate)
+
+
+    #
+    # index = 0
+    # while f_rate > goal_f_rate:
+    #     score_layer, score_channel = check_channel_score(model_new, train_loader)
+    #     score_channel[-1] = np.ones(score_channel[-1].shape)*5000
+    #     indicator = []
+    #     for one in score_channel:
+    #         indicator += list(one)
+    #     min_index = indicator.index(min(indicator))
+    #     indicator = np.ones(len(indicator))
+    #     indicator[min_index] = 0
+    #     cfg, cfg_mask = create_cfg(cfg, indicator)
+    #     model_new = create_model(model_new, cfg, cfg_mask)
+    #     flops, param = get_model_infos(model_new, xshape)
+    #     f_rate = flops / flops_original
+    #     p_rate = param / param_original
+    #     print(f_rate)
+    #     info_dict = {
+    #         "f_rate": f_rate,
+    #         "p_rate": p_rate,
+    #         "cfg": cfg,
+    #         "index": index,
+    #     }
+    #     wandb.log(info_dict)
+    #     index += 1
+
+    score_prune = check_score(model_new, train_loader)
+
+    torch.save(model_new, 'layer_wise_pruning_rate{}_f{:.4f}_p{:.4f}_{:.2f}.pth'.format(pruning_rate, f_rate, p_rate, score_prune))
+
 def layer_remove_check(model, train_loader):
 
     baseline_f_rate = 260292527/313772032
@@ -946,14 +1031,15 @@ if __name__ == '__main__':
 
     wandb_project = 'pruning_score'
     name = 'with_out_normalization_60'
-    wandb.init(project=wandb_project, name=name)
+    # wandb.init(project=wandb_project, name=name)
     #
     # random_search(cfg_mask_all, args.percent)
     # channel_score_search(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
-    layer_remove_check(model, train_loader)
+    # layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
     # channel_remove_check(model, train_loader, 0.6, 0.2)
+    layer_wise_pruning(model, train_loader, 0.8)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()

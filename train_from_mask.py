@@ -96,7 +96,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    mask_list = ['channel_remove_n_f0.63_p0.20_1652.24.pth']
+    mask_list = ['layer_wise_pruning_rate0.8_f0.6449_p0.6679_1638.81.pth']
     wandb_project = 'pruning_score'
     for mask in mask_list:
         # wandb.init(project=wandb_project, name='train_greedy')
