@@ -18,7 +18,6 @@ from score_based_pruning import create_cfg
 from score_based_pruning import create_model
 from score_based_pruning import count_channel
 
-
 # os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 # Prune settings
@@ -103,9 +102,14 @@ def pruning(model):
             index += size
 
     y, i = torch.sort(bn)
-    # tep = copy.deepcopy(y.numpy())
-    # plt.hist(tep, bins=20)
-    # plt.show()
+    tep = copy.deepcopy(y.numpy())
+
+    Min = np.min(tep)
+    Max = np.max(tep)
+    tep = (tep - Min) / (Max - Min)
+    std = np.std(tep)
+    plt.hist(tep, bins=20)
+    plt.show()
 
     for thre_index in range(total):
         thre = y[thre_index]
@@ -131,8 +135,10 @@ def pruning(model):
             "cfg": cfg
         }
         wandb.log(info_dict)
-        if flops/flops_original <= 0.8296:
+        if flops/flops_original <= 0.6448:
             break
+
+    print(cfg)
     torch.save(model_new, "bn_pruning.pth")
 
     # thre_index = int(total * args.percent)

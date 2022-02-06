@@ -229,7 +229,9 @@ def check_channel_score(model, train_loader):
                 K = K1.cpu().numpy() + K2.cpu().numpy()
                 K_layer += K
                 s_, ld = np.linalg.slogdet(K)
+                # s_, ld = np.linalg.slogdet(K/inp.size(2))
                 score_list.append(ld)
+            # s_, ld = np.linalg.slogdet(K_layer/(inp.size(0)*inp.size(2)))
             s_, ld = np.linalg.slogdet(K_layer)
             newmodel.layer_score.append(ld)
             newmodel.channel_score.append(score_list)
@@ -247,7 +249,6 @@ def check_channel_score(model, train_loader):
         if 'ReLU' in str(type(module)):
             # hooks[name] = module.register_forward_hook(counting_hook)
             module.register_forward_hook(counting_forward_hook)
-
         if name == 'feature.0':
             module.register_forward_hook(counting_backward_hook_ini)
 
@@ -527,7 +528,7 @@ def rate_check(model, percent, train_loader):
         p_list.append(param_rate)
     print("")
 
-def channel_remove_check(model, train_loader):
+def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
     baseline_f_rate = 260292527 / 313772032
     baseline_p_rate = 8300726 / 15299748
     xshape = (1, 3, 32, 32)
@@ -547,17 +548,30 @@ def channel_remove_check(model, train_loader):
             indicator += list(one)
         cfg, cfg_mask = create_cfg(form, indicator)
         model_new = create_model(model, cfg, cfg_mask)
+        flops, param = get_model_infos(model_new, xshape)
+        f_rate = flops / flops_original
+        p_rate = param / param_original
+        print(f_rate)
 
-    score_layer, score_channel = check_channel_score(model_new, train_loader)
-    flops, param = get_model_infos(model_new, xshape)
-    f_rate = flops/flops_original
-    p_rate = param/param_original
+    while f_rate > goal_f_rate:
+        score_layer, score_channel = check_channel_score(model_new, train_loader)
+        score_channel[-1] = np.ones(score_channel[-1].shape)*5000
+        indicator = []
+        for one in score_channel:
+            indicator += list(one)
+        min_index = indicator.index(min(indicator))
+        indicator = np.ones(len(indicator))
+        indicator[min_index] = 0
+        cfg, cfg_mask = create_cfg(cfg, indicator)
+        model_new = create_model(model_new, cfg, cfg_mask)
+        flops, param = get_model_infos(model_new, xshape)
+        f_rate = flops / flops_original
+        p_rate = param / param_original
+        print(f_rate)
+
     score_prune = check_score(model_new, train_loader)
 
-    for i in range(len(score_channel)):
-        print(np.sum(score_channel[i] == -np.inf), len(score_channel[i]))
-
-    torch.save(model_new, 'channel_remove_rough_{:.2f}.pth'.format(score_prune))
+    torch.save(model_new, 'channel_remove_n_f{:.4f}_p{:.4f}_{:.2f}.pth'.format(f_rate, p_rate, score_prune))
 
 
 def layer_remove_check(model, train_loader):
@@ -855,7 +869,6 @@ if __name__ == '__main__':
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-
     if not os.path.exists(args.save):
         os.makedirs(args.save)
 
@@ -929,7 +942,7 @@ if __name__ == '__main__':
     # greedy_search(model, args.percent, train_loader)
     # layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
-    channel_remove_check(model, train_loader)
+    channel_remove_check(model, train_loader, 0.5, 0.2)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
