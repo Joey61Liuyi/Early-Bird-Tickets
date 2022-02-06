@@ -553,6 +553,7 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
         p_rate = param / param_original
         print(f_rate)
 
+    index = 0
     while f_rate > goal_f_rate:
         score_layer, score_channel = check_channel_score(model_new, train_loader)
         score_channel[-1] = np.ones(score_channel[-1].shape)*5000
@@ -568,6 +569,13 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
         f_rate = flops / flops_original
         p_rate = param / param_original
         print(f_rate)
+        info_dict = {
+            "f_rate": f_rate,
+            "p_rate": p_rate,
+            "cfg": cfg,
+            "index": index,
+        }
+        index += 1
 
     score_prune = check_score(model_new, train_loader)
 
@@ -934,15 +942,15 @@ if __name__ == '__main__':
 
 
     wandb_project = 'pruning_score'
-    name = '128_greedy'
-    # wandb.init(project=wandb_project, name=name)
+    name = ''
+    wandb.init(project=wandb_project, name=name)
     #
     # random_search(cfg_mask_all, args.percent)
     # channel_score_search(model, args.percent, train_loader)
     # greedy_search(model, args.percent, train_loader)
     # layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
-    channel_remove_check(model, train_loader, 0.5, 0.2)
+    channel_remove_check(model, train_loader, 0.6, 0.2)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
