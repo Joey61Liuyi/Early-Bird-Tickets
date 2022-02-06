@@ -597,7 +597,9 @@ def layer_remove_check(model, train_loader):
     cfg, cfg_mask = create_cfg(form, indicator)
 
     # cut_list = [11,10,8,7,4,5,2,0]
-    cut_list = [11, 10]
+    cut_list_all = [10, 0, 11, 7, 8, 2, 4, 5]
+    cut_list = cut_list_all[:1]
+
     for one in cut_list:
         cfg_mask[one] = np.zeros(len(cfg_mask[one]))
 
