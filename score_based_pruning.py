@@ -164,7 +164,7 @@ def get_batch_jacobian(net, x, target, device):
     return jacob, target.detach(), y.detach()
 
 
-def check_score(model, train_loader):
+def check_score(model, train_loader, sanity_check=False):
     newmodel = copy.deepcopy(model)
     reset_seed()
     newmodel.K = np.zeros((args.test_batch_size, args.test_batch_size))
@@ -197,6 +197,8 @@ def check_score(model, train_loader):
     for j in range(5):
         data_iterator = iter(train_loader)
         x, target = next(data_iterator)
+        if sanity_check:
+            x = shuffle_data(x)
         x2 = torch.clone(x)
         x2 = x2.to(device)
         x, target = x.to(device), target.to(device)
@@ -208,7 +210,7 @@ def check_score(model, train_loader):
     return score
 
 
-def check_channel_score(model, train_loader):
+def check_channel_score(model, train_loader, sanity_check=False):
     newmodel = copy.deepcopy(model)
     reset_seed()
     def counting_forward_hook(module, inp, out):
@@ -258,6 +260,8 @@ def check_channel_score(model, train_loader):
     for j in range(5):
         data_iterator = iter(train_loader)
         x, target = next(data_iterator)
+        if sanity_check:
+            x = shuffle_data(x)
         x2 = torch.clone(x)
         x2 = x2.to(device)
         x, target = x.to(device), target.to(device)
@@ -417,6 +421,15 @@ def count_channel(model):
     total = np.sum(cfg_mask_all)
     return total, form
 
+def shuffle_data(xs):
+    Size = xs.size()
+    # e.g. for CIFAR100, is 50000 * 32 * 32 * 3
+    xs = xs.reshape(Size[0], -1)
+    for i in range(Size[0]):
+        xs[i] = xs[i][torch.randperm(xs[i].nelement())]
+    xs = xs.reshape(Size)
+    return xs
+
 def greedy_search_new(model, percent, train_loader):
     buffer = 33
     total, form = count_channel(model)
@@ -533,15 +546,15 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
     baseline_p_rate = 8300726 / 15299748
     xshape = (1, 3, 32, 32)
     flops_original, param_original = get_model_infos(model, xshape)
-    score = check_score(model, train_loader)
-    score_layer_original, score_channel_original = check_channel_score(model, train_loader)
+    score = check_score(model, train_loader, True)
+    score_layer_original, score_channel_original = check_channel_score(model, train_loader, True)
     total, form = count_channel(model)
     indicator = np.ones(total)
     cfg_original, cfg_mask_original = create_cfg(form, indicator)
     cfg_mask = copy.deepcopy(cfg_mask_original)
     model_new = copy.deepcopy(model)
     for i in range(len(cfg_mask_original)-1):
-        score_layer, score_channel = check_channel_score(model_new, train_loader)
+        score_layer, score_channel = check_channel_score(model_new, train_loader, True)
         cfg_mask[i] = score_channel[i] != -np.inf
         indicator = []
         for one in cfg_mask:
@@ -575,12 +588,12 @@ def channel_remove_check(model, train_loader, goal_f_rate, goal_p_rate):
             "cfg": cfg,
             "index": index,
         }
-        wandb.log(info_dict)
+        # wandb.log(info_dict)
         index += 1
 
     score_prune = check_score(model_new, train_loader)
 
-    torch.save(model_new, 'channel_remove_n_f{:.4f}_p{:.4f}_{:.2f}.pth'.format(f_rate, p_rate, score_prune))
+    torch.save(model_new, 'shuffle_channel_remove_n_f{:.4f}_p{:.4f}_{:.2f}.pth'.format(f_rate, p_rate, score_prune))
 
 
 def ratio_cfg(form, ratio):
@@ -1038,8 +1051,8 @@ if __name__ == '__main__':
     # greedy_search(model, args.percent, train_loader)
     # layer_remove_check(model, train_loader)
     # rate_check(model, args.percent, train_loader)
-    # channel_remove_check(model, train_loader, 0.6, 0.2)
-    layer_wise_pruning(model, train_loader, 0.8)
+    channel_remove_check(model, train_loader, 0.61, 0.2)
+    # layer_wise_pruning(model, train_loader, 0.8)
     #
     # data = np.load('1633.66.npy', allow_pickle=True)
     # data = data.item()
